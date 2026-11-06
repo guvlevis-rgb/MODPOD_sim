@@ -1,0 +1,127 @@
+{
+  "weather": {
+    "file": null,
+    "seed": 7,
+    "design_days": 3,
+    "endurance_days": 14
+  },
+  "building": {
+    "floor_area_m2": 232,
+    "occupants": 40,
+    "envelope": "typical_1980s",
+    "envelope_overrides": {},
+    "hrv_effectiveness": 0.0,
+    "heat_setpoint_c": 12.8,
+    "cool_setpoint_c": 26.7,
+    "min_indoor_c": 10.0,
+    "max_indoor_c": 32.2,
+    "window_count": 24,
+    "window_width_m": 0.914,
+    "window_height_m": 1.219,
+    "window_type": "double_clear",
+    "window_u_ip": null,
+    "window_shgc": null,
+    "window_facade_split": {
+      "N": 0.25,
+      "E": 0.25,
+      "S": 0.25,
+      "W": 0.25
+    }
+  },
+  "loads": {
+    "comms_w": 150,
+    "medical_w": 250,
+    "refrigeration_kwh_day": 3.5,
+    "cooking_kwh_person_day": 0.35,
+    "dhw_l_person_day": 20,
+    "dhw_cop": 2.8
+  },
+  "pv": {
+    "tilt_deg": 45,
+    "snow_clearing_hour": 9
+  },
+  "hp": {
+    "unit_kw": 3.5
+  },
+  "battery": {
+    "soc_min": 0.1,
+    "c_rate": 0.5
+  },
+  "generator": {
+    "fuel": "diesel",
+    "soc_start": 0.3,
+    "soc_stop": 0.85
+  },
+  "ev": {
+    "available_kwh": 0,
+    "max_kw": 9.6
+  },
+  "econ": {
+    "deployment_days_per_year": 12,
+    "fuel_usd_per_l": 1.15,
+    "carbon_usd_per_t": 190,
+    "idle_pv_usd_per_kwh": 0.0
+  },
+  "constraints": {
+    "max_payload_kg": 2900,
+    "max_pv_area_m2": 110,
+    "objective": "lifecycle",
+    "min_autonomy_days": 0
+  },
+  "space": {
+    "pv_kw": [
+      0,
+      3,
+      6,
+      9,
+      12,
+      15,
+      18,
+      21
+    ],
+    "bat_kwh": [
+      0,
+      10,
+      20,
+      30,
+      45,
+      60,
+      80,
+      100
+    ],
+    "gen_kw": [
+      0,
+      6,
+      8,
+      10,
+      12,
+      15,
+      20,
+      25,
+      30
+    ],
+    "hp_units": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16
+    ],
+    "tank_l": [
+      190,
+      380,
+      570
+    ]
+  },
+  "_window_types": "window_type options: single_pane, single_storm, double_clear, double_lowe, triple_lowe (or set window_u_ip in Btu/h-ft2-F and window_shgc to model a specific NFRC-rated product)"
+}

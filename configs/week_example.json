@@ -1,0 +1,19 @@
+{
+  "_about": "One-week HMI simulation. Inherits the building, loads and equipment settings from example.json; anything here overrides them.",
+  "base_config": "example.json",
+  "design": {
+    "pv_kw": 6.0,
+    "bat_kwh": 20,
+    "gen_kw": 15,
+    "hp_kw": 35.0,
+    "tank_gal": 100,
+    "inverter_kw": null,
+    "ev_kwh": 0
+  },
+  "week": {
+    "conditions": ["winter", "summer", "flood", "ice_storm"],
+    "days": 7,
+    "start_dates": {},
+    "ice_storm": {"storm_hours": 36, "ice_clear_hours": 24, "post_storm_cooling_c": 4.0}
+  }
+}
