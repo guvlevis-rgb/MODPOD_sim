@@ -2,7 +2,6 @@ __pycache__/
 *.pyc
 .DS_Store
 # generated outputs (re-create with run_study.py / run_week.py)
-results*/
 week_results*/
 comparison.xlsx
 results_log.txt
