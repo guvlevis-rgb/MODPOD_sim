@@ -1,9 +1,9 @@
 {
   "_about": "One-week HMI simulation. Inherits the building, loads and equipment settings from example.json; anything here overrides them.",
-  "base_config": "example.json",
+  "base_config": "ucg40.json",
   "design": {
-    "pv_kw": 6.0,
-    "bat_kwh": 20,
+    "pv_kw": 1.2,
+    "bat_kwh": 15,
     "gen_kw": 15,
     "hp_kw": 35.0,
     "tank_gal": 100,
