@@ -8,7 +8,7 @@ week with every energy flow between components.
 Config (JSON): the same sections as the sizing study (building, loads, pv, hp, battery, generator, ev,
 econ, weights, constraints, weather) plus
 
-    "base_config": "example.json",          # optional: inherit a building config, then override
+    "base_config": "ucg40.json",          # optional: inherit a building config, then override
     "design": {"pv_kw": 6, "bat_kwh": 20, "gen_kw": 15, "hp_kw": 35, "tank_gal": 100,
                "inverter_kw": null, "ev_kwh": 0},
     "week":   {"conditions": ["winter", "summer", "flood", "ice_storm"], "days": 7,

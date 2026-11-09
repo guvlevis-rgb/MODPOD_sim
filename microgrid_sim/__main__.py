@@ -1,7 +1,7 @@
 """Command line entry point.
 
     python -m microgrid_sim run                      # defaults: synthetic Waitsfield year, base building
-    python -m microgrid_sim run -c configs/example.json -o results
+    python -m microgrid_sim run -c configs/ucg40.json -o results
     python -m microgrid_sim run --weather path/to/USA_VT_Montpelier.epw --quick
 """
 import argparse
@@ -58,10 +58,8 @@ def main():
         from microgrid_sim.excel import write_excel
         print(write_excel(res, Path(a.out) / "microgrid_results.xlsx"))
         return
-    cfg = {}
-    if a.config:
-        with open(a.config) as f:
-            cfg = json.load(f)
+    from microgrid_sim.week import load_config
+    cfg = load_config(a.config) if a.config else {}
     if a.weather:
         cfg.setdefault("weather", {})["file"] = a.weather
     run(cfg, out_dir=a.out, sensitivity=not a.quick, make_report=not a.no_report)

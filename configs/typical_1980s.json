@@ -1,0 +1,7 @@
+{
+  "_about": "ucg40 base case in an older (1980s) building envelope",
+  "base_config": "ucg40.json",
+  "building": {
+    "envelope": "typical_1980s"
+  }
+}

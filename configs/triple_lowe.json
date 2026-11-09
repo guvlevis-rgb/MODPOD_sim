@@ -1,1 +1,7 @@
-{ "building": { "window_type": "triple_lowe" } }
+{
+  "_about": "ucg40 base case with triple-pane low-e windows",
+  "base_config": "ucg40.json",
+  "building": {
+    "window_type": "triple_lowe"
+  }
+}

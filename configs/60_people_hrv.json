@@ -1,1 +1,8 @@
-{ "building": { "occupants": 60, "hrv_effectiveness": 0.7 } }
+{
+  "_about": "ucg40 base case with 60 occupants and a 70 % heat-recovery ventilator",
+  "base_config": "ucg40.json",
+  "building": {
+    "occupants": 60,
+    "hrv_effectiveness": 0.7
+  }
+}

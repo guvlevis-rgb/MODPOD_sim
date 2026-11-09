@@ -70,10 +70,10 @@ FACADE_AZIMUTH = {"N": 0.0, "E": 90.0, "S": 180.0, "W": 270.0}
 
 @dataclass
 class Building:
-    floor_area_m2: float = 232.0          # 2,500 ft2 shelter zone served by the pod
+    floor_area_m2: float = 180.0          # 1,940 ft2 shelter zone served by the pod (ucg40 base case)
     ceiling_height_m: float = 3.0
     aspect_ratio: float = 1.5
-    envelope: str = "typical_1980s"
+    envelope: str = "typical_2010s"
     envelope_overrides: dict = field(default_factory=dict)
     occupants: int = 40
     vent_lps_per_person: float = 2.5      # ASHRAE 62.1 people component (5 cfm/person)
@@ -88,13 +88,13 @@ class Building:
     initial_indoor_summer_c: float = f_to_c(82)
     window_shading: float = 0.7           # frame + blinds/overhang factor on solar gains
     # --- windows (set window_count=None to fall back to the envelope's window-to-wall ratio)
-    window_count: int | None = 24
-    window_width_m: float = 0.914         # 3 ft
-    window_height_m: float = 1.219        # 4 ft  -> 12 ft2 per window
-    window_type: str | None = None        # key of WINDOW_TYPES; None = the envelope preset's typical window
+    window_count: int | None = 7
+    window_width_m: float = 1.1176        # 44 in
+    window_height_m: float = 1.8288       # 72 in -> 22 ft2 per window
+    window_type: str | None = "single_pane"  # key of WINDOW_TYPES; None = the envelope preset's typical window
     window_u_ip: float | None = None      # optional NFRC U-factor override, Btu/h-ft2-F (wins over type)
     window_shgc: float | None = None      # optional SHGC override
-    window_facade_split: dict = field(default_factory=lambda: {"N": 0.25, "E": 0.25, "S": 0.25, "W": 0.25})
+    window_facade_split: dict = field(default_factory=lambda: {"N": 0.5, "E": 0.0, "S": 0.5, "W": 0.0})
 
     def validate(self):
         """Check building inputs and raise a ValueError that says what to fix."""
@@ -212,14 +212,14 @@ class Building:
 @dataclass
 class Loads:
     # critical (never shed)
-    comms_w: float = 150.0               # satellite internet, radios, router, phone charging kiosk base
-    medical_w: float = 250.0             # oxygen concentrator / CPAP / med fridge
+    comms_w: float = 200.0               # satellite internet, radios, router, phone charging kiosk base
+    medical_w: float = 0.0               # oxygen concentrator / CPAP / med fridge
     refrigeration_kwh_day: float = 3.5   # food-service fridge + freezer
     controls_w: float = 60.0             # pod controller, BMS, remote monitoring, inverter idle
     # essential
     lighting_w_m2: float = 3.0           # LED; full 06-22, 10 % overnight
     water_system_w: float = 150.0        # pressure pump + UV treatment
-    cooking_kwh_person_day: float = 0.35  # induction / electric food service
+    cooking_kwh_person_day: float = 0.0   # induction / electric food service
     # discretionary (shed first)
     charging_wh_person_day: float = 25.0  # phones, laptops
     dhw_l_person_day: float = 20.0        # hot water use

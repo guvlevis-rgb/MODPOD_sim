@@ -123,7 +123,7 @@ def default_cases():
     return [
         ("Base case", lambda s: None),
         ("Leaky 1950s envelope", env("leaky_1950s")),
-        ("Typical 2010s envelope", env("typical_2010s")),
+        ("Typical 1980s envelope", env("typical_1980s")),
         ("Efficient modern envelope", env("efficient_modern")),
         ("20 occupants", occ(20)),
         ("80 occupants", occ(80)),
@@ -134,8 +134,8 @@ def default_cases():
                                          setattr(s.econ, "fuel_usd_per_l", 0.75))),
         ("PV net-metered when parked", lambda s: setattr(s.econ, "idle_pv_usd_per_kwh", 0.19)),
         ("Triple-pane low-e windows", lambda s: setattr(s.building, "window_type", "triple_lowe")),
-        ("Single-pane windows", lambda s: setattr(s.building, "window_type", "single_pane")),
-        ("Twice as many windows", lambda s: setattr(s.building, "window_count", 2 * (s.building.window_count or 24))),
+        ("Double-pane low-e windows", lambda s: setattr(s.building, "window_type", "double_lowe")),
+        ("Twice as many windows", lambda s: setattr(s.building, "window_count", 2 * (s.building.window_count or 7))),
         ("Minimise up-front cost", lambda s: setattr(s.constraints, "objective", "capex")),
     ]
 
@@ -174,9 +174,12 @@ def gen_battery_options(st: Study, scs, best: pd.Series, gens=None, bats=None) -
 
 
 def window_study(st: Study, wy, windows, days=3, types=("single_pane", "double_clear", "double_lowe", "triple_lowe"),
-                 counts=(12, 24, 48)) -> pd.DataFrame:
+                 counts=None) -> pd.DataFrame:
     """Re-optimize the system for each window type x window count."""
     from .models import WINDOW_TYPES
+    if counts is None:   # half, base and double the base building's window count
+        n0 = st.building.window_count or 7
+        counts = sorted({max(1, round(n0 / 2)), n0, 2 * n0})
     rows = []
     for t in types:
         for n in counts:

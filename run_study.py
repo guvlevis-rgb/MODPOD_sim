@@ -25,7 +25,7 @@ if missing:
 
 args = sys.argv[1:]
 if not args:
-    args = ["run", "-c", "configs/example.json", "-o", "results"]
+    args = ["run", "-c", "configs/ucg40.json", "-o", "results"]
 elif args[0] not in ("run", "report", "-h", "--help"):
     args = ["run"] + args
 sys.argv = [sys.argv[0]] + args

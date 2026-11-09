@@ -1,19 +1,28 @@
 {
-  "_about": "One-week HMI simulation. Inherits the building, loads and equipment settings from example.json; anything here overrides them.",
+  "_about": "One-week HMI simulation of the ucg40 base case at the sizing study's recommended sizes. Change the design values to try other sizes.",
   "base_config": "ucg40.json",
   "design": {
-    "pv_kw": 1.2,
-    "bat_kwh": 15,
-    "gen_kw": 15,
-    "hp_kw": 35.0,
-    "tank_gal": 100,
+    "pv_kw": 1.4,
+    "bat_kwh": 10,
+    "gen_kw": 10,
+    "hp_kw": 24.5,
+    "tank_gal": 50,
     "inverter_kw": null,
     "ev_kwh": 0
   },
   "week": {
-    "conditions": ["winter", "summer", "flood", "ice_storm"],
+    "conditions": [
+      "winter",
+      "summer",
+      "flood",
+      "ice_storm"
+    ],
     "days": 7,
     "start_dates": {},
-    "ice_storm": {"storm_hours": 36, "ice_clear_hours": 24, "post_storm_cooling_c": 4.0}
+    "ice_storm": {
+      "storm_hours": 36,
+      "ice_clear_hours": 24,
+      "post_storm_cooling_c": 4.0
+    }
   }
 }
