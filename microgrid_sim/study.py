@@ -148,6 +148,8 @@ def default_cases():
         ("PV net-metered when parked", lambda s: setattr(s.econ, "idle_pv_usd_per_kwh", 0.19)),
         ("Triple-pane low-e windows", lambda s: setattr(s.building, "window_type", "triple_lowe")),
         ("Double-pane low-e windows", lambda s: setattr(s.building, "window_type", "double_lowe")),
+        ("Refrigeration 4 kWh/day", lambda s: setattr(s.loads, "refrigeration_kwh_day", 4.0)),
+        ("Refrigeration 6 kWh/day", lambda s: setattr(s.loads, "refrigeration_kwh_day", 6.0)),
         ("Twice as many windows", lambda s: setattr(s.building, "window_count", 2 * (s.building.window_count or 7))),
         ("Minimise up-front cost", lambda s: setattr(s.constraints, "objective", "capex")),
     ]
@@ -156,7 +158,7 @@ def default_cases():
 # ---------------------------------------------------------------------------
 # Generator x battery trade-off (other equipment held at the optimum)
 # ---------------------------------------------------------------------------
-GEN_OPTIONS = [0, 5, 6, 8, 10, 12, 15, 17, 20, 25, 30]
+GEN_OPTIONS = [0, 5, 6, 8, 10, 12, 13, 15, 17, 20, 25, 30, 35, 40]
 BAT_OPTIONS = [0, 5, 10, 15, 20, 30, 45, 60, 80, 100]
 
 
@@ -166,7 +168,7 @@ def gen_battery_options(st: Study, scs, best: pd.Series, gens=None, bats=None) -
     Reports generator run time (h/day), starts, fuel, payload and feasibility for each combination,
     which shows directly how battery size trades against generator run time and trailer weight.
     """
-    gens = sorted(set(gens or GEN_OPTIONS) | {float(best.gen_kw)})
+    gens = sorted({g for g in (gens or GEN_OPTIONS) if g >= st.space.min_gen_kw - 1e-9} | {float(best.gen_kw)})
     bats = sorted(set(bats or BAT_OPTIONS) | {float(best.bat_kwh)})
     rows = [(best.pv_kw, b, g, best.hp_units, best.tank_l if g > 0 else 0.0, best.ph_kbtu) for g in gens for b in bats]
     d = pd.DataFrame(rows, columns=["pv_kw", "bat_kwh", "gen_kw", "hp_units", "tank_l", "ph_kbtu"]).astype(float)

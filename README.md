@@ -13,9 +13,10 @@ defaults match it, and every other case config inherits it with `"base_config": 
 | Envelope | `typical_2010s` (IECC 2012 era): wall U-0.053, roof U-0.032 Btu/h·ft²·°F, 0.3 air changes/h, no heat-recovery ventilator |
 | Windows | 7 single-pane windows, 44 × 72 in (154 ft² in total, 9 % of wall), half on the north wall, half on the south |
 | Thermostat and limits | heat to 55 °F, cool to 80 °F; shelter must stay between 50 °F and 90 °F |
-| Critical loads | communications 200 W, refrigeration 3.5 kWh/day, pod controls 60 W; no medical load |
-| Other loads | LED lighting, water system, device charging, heat-pump water heater (20 L per person per day); no electric cooking |
-| Equipment rules | PV 45° tilt, snow brushed off at 9 am; LFP battery 0.5C, 10 % floor; diesel generator cycle-charging 30 % → 85 % |
+| Critical loads | communications 200 W, refrigeration 5 kWh/day (expected range 4–6; both ends run as sensitivity cases), pod controls 60 W; no medical load |
+| Essential loads | electric cooking 3,000 W for 3 h/day (one hour at 7 am, noon and 5 pm), LED lighting 750 W for 12 h/day (8 am–8 pm), water system 150 W |
+| Discretionary loads | device charging, heat-pump water heater (20 L per person per day) |
+| Equipment rules | PV 45° tilt, snow brushed off at 9 am; LFP battery 0.5C, 10 % floor; diesel generator of at least 10 kW (`space.min_gen_kw`), cycle-charging 30 % → 85 % |
 | Heating and cooling | 14,000 Btu/h portable heat/cool units (heat-pump heating 2.8 kW each, no heat-pump heating below 44 °F) topped up by indirect-fired propane heaters (80 % efficient) swept in 50 kBtu/h steps; propane carried in 100-lb cylinders for 3 days of the worst window |
 | Limits and costs | trailer payload 6,393 lb, array area 1,184 ft², 12 deployment days a year, diesel $4.35/gal, propane $2.85/gal, carbon $190/t |
 | Weather | synthetic Waitsfield typical year (seed 7) |
@@ -27,40 +28,44 @@ infiltration (54), walls (45), slab edge (41) and roof (32).
 
 | | |
 |---|---|
-| Recommended design | no PV, 5 kWh battery, 3.5 kW diesel generator with a 50 gal tank, 1 × 14,000 Btu/h portable heat/cool unit, 50 kBtu/h of indirect-fired propane heat, 5 kW inverter |
-| Cost | $13.1k equipment, $19.7k over 15 years |
-| Payload | 3,328 lb of the 6,393 lb trailer limit, including two full 100-lb propane cylinders and a full diesel tank |
-| Worst 3-day window | cold snap: propane 11.1 gal/day (all of the heat), diesel 3.7 gal/day, shelter low 54.4 °F; summer: diesel 4.8 gal/day, shelter high 86.2 °F |
-| Diesel autonomy | 13.8 days on one 50 gal tank through the worst 14-day winter stretch |
+| Recommended design | no PV, 5 kWh battery, 10 kW diesel generator with a 50 gal tank, 1 × 14,000 Btu/h portable heat/cool unit, 50 kBtu/h of indirect-fired propane heat |
+| Cost | $17.1k equipment, $25.7k over 15 years |
+| Payload | 3,783 lb of the 6,393 lb trailer limit, including two full 100-lb propane cylinders and a full diesel tank |
+| Electric demand | 48–64 kWh/day depending on the window (cooking 9, lighting 9, refrigeration 5 kWh/day of it) |
+| Worst 3-day window | cold snap: propane 10.8 gal/day (all of the heat), diesel 6.1 gal/day, shelter low 54.3 °F; summer: diesel 7.8 gal/day, shelter high 87.0 °F |
+| Diesel autonomy | 8.4 days on one 50 gal tank through the worst 14-day winter stretch |
 
-Simulated designs: 38,703, of which 17,108 met every limit.
+Simulated designs: 31,086, of which 9,995 met every limit. Generators smaller than 10 kW, and designs with no
+generator, are left out of the sweep.
 
 **Fuel needed by the recommended design** (also `fuel_requirements.csv`, report section 03, Excel Summary):
 
 | Period | Diesel | Propane | 100-lb cylinders |
 |---|---|---|---|
-| Winter cold snap (3 days) | 11.1 gal | 33.2 gal | 2 |
-| Winter dark storm (3 days) | 10.6 gal | 16.4 gal | 1 |
-| Spring flood (3 days) | 10.2 gal | 6.7 gal | 1 |
-| Summer heat wave (3 days) | 14.3 gal | 0 | 0 |
-| 7 days at the worst 3-day rate | 33.3 gal | 77.4 gal | 4 |
-| Worst 14-day winter stretch | 51.4 gal | 119.8 gal | 6 |
+| Winter cold snap (3 days) | 18.4 gal | 32.5 gal | 2 |
+| Winter dark storm (3 days) | 18.2 gal | 15.7 gal | 1 |
+| Spring flood (3 days) | 17.0 gal | 6.2 gal | 1 |
+| Summer heat wave (3 days) | 23.3 gal | 0 | 0 |
+| 7 days at the worst 3-day rate | 54.3 gal | 75.8 gal | 4 |
+| Worst 14-day winter stretch | 86.7 gal | 116.7 gal | 5 |
 
 The portable heat/cool units stop heating below 44 °F, so in a Vermont winter the propane heaters carry the whole
-heating load and the units mostly cool in summer. One 50 kBtu/h heater holds the shelter at 54 °F in the cold snap; in
-the 14-day stretch the shelter dips to about 46 °F on the coldest night, so a second heater or a 100 kBtu/h unit is
-worth carrying if the 14-day case matters.
+heating load and the units mostly cool in summer. Section 02 of the report shows the heat each one delivers, hour by
+hour. The 50 gal diesel tank runs dry on day 8 of the 14-day stretch; after that the propane heater blowers lose power
+and the shelter cools off. If the 14-day case matters, carry a 100 gal tank: the autonomy ladder finds it carries the
+whole stretch for $17.9k of equipment.
 
 What changes it most (each case re-optimized):
 
 | Case | Equipment cost | What changes |
 |---|---|---|
-| Direct-fired propane heaters | $10.6k | cheaper and lighter, but unvented: not for occupied space (CO and moisture) |
-| Heat-recovery ventilator, 70 % | $12.9k | propane falls to 6.5 gal/day, 1 cylinder |
-| Cold-climate mini-splits instead of portable units | $16.7k | propane falls to 8.4 gal/day, 5 kW generator |
-| 80 occupants | $16.6k | 6 kW generator, 100 kBtu/h of propane |
-| Older 1980s envelope | $14.4k | 100 kBtu/h of propane, 14.5 gal/day |
-| Leaky 1950s envelope | $14.6k | 100 kBtu/h of propane, 22.7 gal/day, 252 gal over 14 days |
+| Direct-fired propane heaters | $14.3k | cheaper and lighter, but unvented: not for occupied space (CO and moisture) |
+| Heat-recovery ventilator, 70 % | $16.9k | propane falls to 6.3 gal/day |
+| Refrigeration 4 or 6 kWh/day | $17.1k | same equipment; diesel 7.2 or 8.1 gal/day |
+| Cold-climate mini-splits instead of portable units | $20.0k | propane falls to 8.2 gal/day, more diesel |
+| 80 occupants | $18.8k | 2 heat/cool units, diesel 10.5 gal/day |
+| Older 1980s envelope | $18.4k | 100 kBtu/h of propane, 14.3 gal/day |
+| Leaky 1950s envelope | $17.9k | 100 kBtu/h of propane, 22.5 gal/day |
 
 ## Quick start
 
@@ -99,7 +104,7 @@ Outputs in the results folder:
 
 | File | Contents |
 |---|---|
-| `microgrid_report.html` | Interactive report: optimum, dispatch per design window, weather year, sweep explorer, autonomy ladder, sensitivity, any-day deployment check, assumptions |
+| `microgrid_report.html` | Interactive report: optimum, dispatch per design window (electric supply, heat from the heat/cool units and propane heaters, temperatures, battery), weather year, sweep explorer, autonomy ladder, sensitivity, any-day deployment check, assumptions |
 | `microgrid_results.xlsx` | Excel version of the report: Summary, one sheet per design window (hourly data + charts), Weather, Design sweep, Feasible designs, Autonomy, Sensitivity, Annual check, Assumptions, All designs. 28 native Excel charts; totals, unit conversions, limits and cross-sheet summaries are live formulas |
 | `dispatch_*.png`, `sweep_cost_vs_fuel.png`, `sensitivity_capex.png` | Static figures for slides |
 | `sweep_results.csv` | Every simulated design with per-window metrics, cost, weight, feasibility and failure reason |
@@ -160,6 +165,18 @@ Windows are explicit inputs in the `building` section of the config:
 
 Window U-factor sets conduction loss; SHGC and facade orientation set solar gain, computed hour by hour for each wall.
 
+## Loads
+
+Set in the `loads` section of the config:
+
+| Setting | Meaning | Default |
+|---|---|---|
+| `refrigeration_kwh_day` | fridge + freezer energy, spread evenly over the day (critical) | 5 |
+| `cooking_w`, `cooking_hours` | cooking power and the hours it runs, one hour each (essential) | 3,000 W at 7, 12, 17 |
+| `lighting_w`, `lighting_hours`, `lighting_start_hour` | lighting power and when it is on (essential); `lighting_w: null` falls back to `lighting_w_m2` | 750 W, 12 h from 8 am |
+| `comms_w`, `medical_w`, `controls_w` | constant critical loads | 200, 0, 60 W |
+| `dhw_l_person_day`, `charging_wh_person_day` | hot water and device charging per person (discretionary) | 20 L, 25 Wh |
+
 ## Heating and cooling equipment
 
 | Setting | Choices | Default |
@@ -170,10 +187,11 @@ Window U-factor sets conduction loss; SHGC and facade orientation set solar gain
 | `constraints.propane_days_onboard` | days of the worst window's propane carried on the trailer (counted in payload and cost) | 3 |
 | `econ.propane_usd_per_gal` | propane price | 2.85 |
 | `space.ph_kbtu` | propane heater sizes swept | 0–400 kBtu/h in 50 kBtu/h steps |
+| `space.gen_kw`, `space.min_gen_kw` | generator sizes swept; anything smaller than the minimum (including no generator) is skipped | 10–30 kW, minimum 10 |
 
 ## Generator and battery options
 
-After optimizing, the tool simulates every generator size (0–30 kW) against every battery size (0–100 kWh) with the PV, heat pumps and tank held at the optimum. For each pair it reports generator run hours per day (by design window), starts per day, fuel use, payload by component, payload margin, cost, and whether it meets every limit. It appears in the HTML report (section 03), the Excel sheet "Gen & battery", and `generator_battery_options.csv`.
+After optimizing, the tool simulates every generator size from 10 to 40 kW against every battery size (0–100 kWh) with the PV, heat/cool units, propane heaters and tank held at the optimum. For each pair it reports generator run hours per day (by design window), starts per day, fuel use, payload by component, payload margin, cost, and whether it meets every limit. It appears in the HTML report (section 04), the Excel sheet "Gen & battery", and `generator_battery_options.csv`.
 
 ## Model
 

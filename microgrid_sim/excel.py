@@ -250,16 +250,18 @@ def _window_sheet(wb, key, d, desc):
     n = len(d["time"])
     # data table
     hdr = ["Time", "PV (kW)", "Battery discharge (kW)", "Generator (kW)", "EV pickup (kW)", "Unserved (kW)",
-           "Load served (kW)", "Battery charging (kW)", "Heat-pump draw (kW)", "Battery SOC (%)",
-           "Indoor (°F)", "Outdoor (°F)", "Min limit (°F)", "Max limit (°F)", "PV curtailed (kW)"]
-    R0 = 53
+           "Load served (kW)", "Battery charging (kW)", "HVAC draw (kW)", "Battery SOC (%)",
+           "Indoor (°F)", "Outdoor (°F)", "Min limit (°F)", "Max limit (°F)", "PV curtailed (kW)",
+           "Heat/cool unit heat (kW)", "Propane heat (kW)", "Cooling (kW)", "Propane burn (gal/h)"]
+    R0 = 70
     rows = []
     for i in range(n):
         rows.append([pd.Timestamp(d["time"][i]).strftime("%b %d %H:%M"), d["pv"][i], d["bat_dis"][i], d["gen"][i],
                      d["ev"][i], d["unmet"][i], d["load"][i], d["bat_ch"][i], d["hvac"][i], d["soc"][i],
-                     d["t_in"][i], d["t_out"][i], None, None, d["curtail"][i]])
-    fm = [None] + [NF["kw"]] * 8 + ["0"] + [NF["f"]] * 4 + [NF["kw"]]
-    a, b = table(ws, R0, 1, hdr, rows, fmts=fm, widths=[13] + [11] * 14)
+                     d["t_in"][i], d["t_out"][i], None, None, d["curtail"][i],
+                     d["q_hp"][i], d["q_ph"][i], d["q_cool"][i], d["lp_gph"][i]])
+    fm = [None] + [NF["kw"]] * 8 + ["0"] + [NF["f"]] * 4 + [NF["kw"]] * 4 + ["0.00"]
+    a, b = table(ws, R0, 1, hdr, rows, fmts=fm, widths=[13] + [11] * 18)
     for rr in range(a, b + 1):
         ws.cell(rr, 13).value = "=T_MIN_F"
         ws.cell(rr, 14).value = "=T_MAX_F"
@@ -278,7 +280,7 @@ def _window_sheet(wb, key, d, desc):
         ("Unserved energy", f"=SUM({rng(6)})", NF["kwh1"], "kWh", "f"),
         ("PV energy used", f"=SUM({rng(2)})", NF["kwh"], "kWh", "f"),
         ("Generator energy", f"=SUM({rng(4)})", NF["kwh"], "kWh", "f"),
-        ("Heat-pump energy", f"=SUM({rng(9)})", NF["kwh"], "kWh", "f"),
+        ("HVAC electricity", f"=SUM({rng(9)})", NF["kwh"], "kWh", "f"),
         ("Coldest indoor", f"=MIN({rng(11)})", NF["f"], "°F", "f"),
         ("Warmest indoor", f"=MAX({rng(11)})", NF["f"], "°F", "f"),
         ("Hours below minimum", f'=COUNTIF({rng(11)},"<"&T_MIN_F)', "0", "h", "f"),
@@ -286,6 +288,10 @@ def _window_sheet(wb, key, d, desc):
         ("Fuel left in tank", m["fuel_left_gal"], NF["gal"], "gal", "sim"),
         ("Window length", m["days"], "0", "days", "sim"),
         ("Fuel per day", "=B6/B19", NF["gal"], "gal/day", "f"),
+        ("Heat from heat/cool units", f"=SUM({rng(16)})", NF["kwh"], "kWh", "f"),
+        ("Heat from propane", f"=SUM({rng(17)})", NF["kwh"], "kWh", "f"),
+        ("Propane used", f"=SUM({rng(19)})", NF["gal"], "gal", "f"),
+        ("Propane per day", "=B23/B19", NF["gal"], "gal/day", "f"),
     ]
     for i, (lab, v, fmt, unit, kind) in enumerate(mets):
         rr = 6 + i
@@ -347,6 +353,17 @@ def _window_sheet(wb, key, d, desc):
     sc.x_axis.tickLblSkip = skip
     sc.x_axis.tickMarkSkip = skip
     ws.add_chart(sc, "E39")
+
+    # chart 4: heat delivered (heat/cool units + propane)
+    hc = AreaChart(grouping="stacked")
+    for col, hexc in ((16, C["hp"]), (17, "9C3FB0")):
+        hc.add_data(Reference(ws, min_col=col, min_row=a - 1, max_row=b), titles_from_data=True)
+        color_series(hc.series[-1], hexc)
+    hc.set_categories(cats)
+    style_chart(hc, "Heat delivered: heat/cool units and propane heaters", y_title="kW heat", w=26, h=7)
+    hc.x_axis.tickLblSkip = skip
+    hc.x_axis.tickMarkSkip = skip
+    ws.add_chart(hc, "E52")
     return name
 
 

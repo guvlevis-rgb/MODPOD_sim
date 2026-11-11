@@ -62,6 +62,7 @@ def build_payload(res: dict) -> dict:
             pv=_r(s["pv"]), bat_dis=_r(s["bat_dis"]), gen=_r(s["gen"]), ev=_r(s["ev"]), unmet=_r(s["unmet"]),
             load=_r(s["load"]), hvac=_r(s["hvac"]), bat_ch=_r(s["bat_ch"]), soc=_r(np.asarray(s["soc"]) * 100, 1),
             t_in=_r(c2f(s["t_in"]), 1), t_out=_r(c2f(s["t_out"]), 1), curtail=_r(s["curtail"]),
+            q_hp=_r(s["q_heat"]), q_ph=_r(s["q_ph"]), q_cool=_r(s["q_cool"]), lp_gph=_r(s["propane_gph"], 2),
             m=dict(days=mt["days"], fuel_gal=mt["fuel_l"] / L_PER_GAL, gen_h=mt["gen_hours"], starts=mt["gen_starts"],
                    unmet=mt["unmet"], demand=mt["demand"], pv=mt["pv_used"], t_min=float(c2f(mt["t_min"])),
                    t_max=float(c2f(mt["t_max"])), heat=mt["heat_kwh"], cool=mt["cool_kwh"],
@@ -295,7 +296,7 @@ def write_pngs(res: dict, out_dir) -> list[str]:
     for k, v in res["dispatch"].items():
         s = v["series"]
         t = pd.DatetimeIndex(s["time"])
-        fig, ax = plt.subplots(3, 1, figsize=(10, 7), sharex=True, gridspec_kw=dict(height_ratios=[3, 1.6, 1.2]))
+        fig, ax = plt.subplots(4, 1, figsize=(10, 8.6), sharex=True, gridspec_kw=dict(height_ratios=[3, 1.6, 1.6, 1.2]))
         ax[0].stackplot(t, s["pv"], s["bat_dis"], s["gen"], s["ev"], s["unmet"],
                         labels=["PV", "Battery", "Generator", "EV", "Unserved"],
                         colors=[col["pv"], col["bat"], col["gen"], col["ev"], col["unmet"]], alpha=0.9, step="post")
@@ -304,14 +305,20 @@ def write_pngs(res: dict, out_dir) -> list[str]:
         ax[0].set_ylabel("kW")
         ax[0].legend(ncol=7, fontsize=7, loc="upper left", frameon=False)
         ax[0].set_title(f"{v['label']} - recommended design dispatch", loc="left", fontsize=11)
-        ax[1].plot(t, c2f(s["t_in"]), color=col["bat"], lw=1.6, label="Indoor")
-        ax[1].plot(t, c2f(s["t_out"]), color=col["mute"], lw=1, ls="--", label="Outdoor")
-        ax[1].axhspan(c2f(st.building.min_indoor_c), c2f(st.building.max_indoor_c), color="#2a78d6", alpha=0.06)
-        ax[1].set_ylabel("deg F")
-        ax[1].legend(ncol=2, fontsize=7, frameon=False)
-        ax[2].plot(t, np.asarray(s["soc"]) * 100, color=col["bat"], lw=1.4)
-        ax[2].set_ylabel("Battery SOC %")
-        ax[2].set_ylim(0, 105)
+        ax[1].stackplot(t, s["q_heat"], s["q_ph"], labels=["Heat/cool unit heat", "Propane heat"],
+                        colors=["#0f8f6e", "#9c3fb0"], alpha=0.9, step="post")
+        if np.asarray(s["q_cool"]).max() > 0.01:
+            ax[1].step(t, -np.asarray(s["q_cool"]), where="post", color="#2a78d6", lw=1.0, label="Cooling (negative)")
+        ax[1].set_ylabel("kW heat")
+        ax[1].legend(ncol=3, fontsize=7, loc="upper left", frameon=False)
+        ax[2].plot(t, c2f(s["t_in"]), color=col["bat"], lw=1.6, label="Indoor")
+        ax[2].plot(t, c2f(s["t_out"]), color=col["mute"], lw=1, ls="--", label="Outdoor")
+        ax[2].axhspan(c2f(st.building.min_indoor_c), c2f(st.building.max_indoor_c), color="#2a78d6", alpha=0.06)
+        ax[2].set_ylabel("deg F")
+        ax[2].legend(ncol=2, fontsize=7, frameon=False)
+        ax[3].plot(t, np.asarray(s["soc"]) * 100, color=col["bat"], lw=1.4)
+        ax[3].set_ylabel("Battery SOC %")
+        ax[3].set_ylim(0, 105)
         fig.tight_layout()
         f = out / f"dispatch_{k}.png"
         fig.savefig(f, dpi=140)
@@ -409,7 +416,7 @@ section{display:grid;gap:14px;padding-block:34px 6px}
 .findings{margin:0;padding-left:20px;display:grid;gap:6px;max-width:82ch}
 .panel{background:var(--panel);border:1px solid var(--rule);padding:14px 14px 8px;min-width:0}
 .chart{width:100%;height:380px}
-.chart.tall{height:560px}.chart.short{height:300px}
+.chart.tall{height:720px}.chart.short{height:300px}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));gap:16px}
 .tabs{display:flex;flex-wrap:wrap;gap:6px}
 .tabs button{font:500 14px var(--f-body);border:1px solid var(--rule);background:var(--panel);color:var(--ink);padding:7px 12px;border-radius:3px;cursor:pointer}
@@ -433,7 +440,7 @@ dl.assume dt{color:var(--mute);font:500 12px/1.6 var(--f-mono);text-transform:up
 dl.assume dd{margin:0;min-width:0}
 .note{font-size:13px;color:var(--mute);margin:0}
 footer{margin-top:40px;padding-top:14px;border-top:1px solid var(--rule);font-size:13px;color:var(--mute)}
-@media (max-width:560px){.spec .cell:last-child:nth-child(odd){grid-column:1/-1}.spec .v{font-size:28px}.chart{height:320px}.chart.tall{height:520px}}
+@media (max-width:560px){.spec .cell:last-child:nth-child(odd){grid-column:1/-1}.spec .v{font-size:28px}.chart{height:320px}.chart.tall{height:640px}}
 </style>
 
 <div class="wrap">
@@ -453,7 +460,7 @@ footer{margin-top:40px;padding-top:14px;border-top:1px solid var(--rule);font-si
 
 <section>
   <h2><span class="n">02</span>Recommended design through each design window</h2>
-  <p class="lede">Hour-by-hour dispatch of the optimum. Top: where each kW of load came from. Middle: shelter temperature against the 50&ndash;90&nbsp;&deg;F requirement band. Bottom: battery state of charge. Windows marked "annual check" were added automatically when a deployment on that date broke a limit.</p>
+  <p class="lede">Hour-by-hour dispatch of the optimum. Top: where each kW of electric load came from. Second: heat delivered to the shelter by the heat/cool units and the propane heaters (kW of heat; cooling shown below zero), with propane burn on hover. Third: shelter temperature against the 50&ndash;90&nbsp;&deg;F requirement band. Bottom: battery state of charge. Windows marked "annual check" were added automatically when a deployment on that date broke a limit.</p>
   <div class="tabs" role="tablist" id="wtabs"></div>
   <p class="wdesc" id="wdesc"></p>
   <div class="mrow" id="wmetrics"></div>
@@ -638,8 +645,12 @@ function drawDispatch(){
   if (d.unmet.some(v=>v>0.01)) sup.push(st("Unserved", d.unmet, "--crit"));
   const loadC = d.load.map((v,i)=>v + d.bat_ch[i]);
   sup.push({x:t,y:loadC,name:"Load + battery charging",type:"scatter",mode:"lines",line:{color:css("--ink"),width:1.5,shape:"hv"},hovertemplate:"%{y:.1f} kW"});
-  sup.push({x:t,y:d.hvac,name:"Heat-pump draw",type:"scatter",mode:"lines",line:{color:css("--ink2"),width:1.2,dash:"dot",shape:"hv"},hovertemplate:"%{y:.1f} kW"});
+  sup.push({x:t,y:d.hvac,name:"HVAC draw (units + blowers)",type:"scatter",mode:"lines",line:{color:css("--ink2"),width:1.2,dash:"dot",shape:"hv"},hovertemplate:"%{y:.1f} kW"});
   const tr = sup.map(s=>Object.assign(s,{xaxis:"x",yaxis:"y"}));
+  const hst = (name, y, c, extra) => Object.assign({x:t, y, name, type:"scatter", mode:"lines", stackgroup:"h", line:{width:0.5,color:css(c),shape:"hv"}, fillcolor:css(c), xaxis:"x", yaxis:"y4", hovertemplate:"%{y:.1f} kW heat"}, extra||{});
+  tr.push(hst("Heat/cool unit heat", d.q_hp, "--accent"));
+  tr.push(hst("Propane heat", d.q_ph, "--heat", {customdata:d.lp_gph, hovertemplate:"%{y:.1f} kW heat · %{customdata:.2f} gal/h"}));
+  if (d.q_cool.some(v=>v>0.01)) tr.push({x:t,y:d.q_cool.map(v=>-v),name:"Cooling",type:"scatter",mode:"lines",line:{color:css("--bat"),width:1.2,shape:"hv"},xaxis:"x",yaxis:"y4",customdata:d.q_cool,hovertemplate:"%{customdata:.1f} kW cooling"});
   const lo=D.building.t_min_f, hi=D.building.t_max_f;
   tr.push({x:t,y:d.t_out,name:"Outdoor",type:"scatter",mode:"lines",line:{color:css("--mute"),width:1.2,dash:"dash"},xaxis:"x",yaxis:"y2",hovertemplate:"%{y:.1f} °F"});
   tr.push({x:t,y:d.t_in,name:"Indoor",type:"scatter",mode:"lines",line:{color:css("--bat"),width:2},xaxis:"x",yaxis:"y2",hovertemplate:"%{y:.1f} °F"});
@@ -648,9 +659,10 @@ function drawDispatch(){
   Object.assign(L, {
     margin:{l:60,r:16,t:30,b:40},
     xaxis:Object.assign({},ax,{anchor:"y3"}),
-    yaxis:Object.assign({},ax,{domain:[0.47,1],title:{text:"kW",font:{color:css("--ink2"),size:12}},rangemode:"tozero"}),
-    yaxis2:Object.assign({},ax,{domain:[0.2,0.42],title:{text:"°F",font:{color:css("--ink2"),size:12}}}),
-    yaxis3:Object.assign({},ax,{domain:[0,0.14],range:[0,105],title:{text:"SOC %",font:{color:css("--ink2"),size:12}}}),
+    yaxis:Object.assign({},ax,{domain:[0.6,1],title:{text:"kW electric",font:{color:css("--ink2"),size:12}},rangemode:"tozero"}),
+    yaxis4:Object.assign({},ax,{domain:[0.38,0.55],title:{text:"kW heat (+) · cool (−)",font:{color:css("--ink2"),size:12}}}),
+    yaxis2:Object.assign({},ax,{domain:[0.16,0.33],title:{text:"°F",font:{color:css("--ink2"),size:12}}}),
+    yaxis3:Object.assign({},ax,{domain:[0,0.11],range:[0,105],title:{text:"SOC %",font:{color:css("--ink2"),size:12}}}),
     shapes:[{type:"rect",xref:"paper",yref:"y2",x0:0,x1:1,y0:lo,y1:hi,fillcolor:css("--band"),line:{width:0},layer:"below"},
             {type:"line",xref:"paper",yref:"y2",x0:0,x1:1,y0:lo,y1:lo,line:{color:css("--crit"),width:1,dash:"dot"}}],
     annotations:[{xref:"paper",yref:"y2",x:1,y:lo,text:`${lo.toFixed(0)} °F minimum`,showarrow:false,xanchor:"right",yanchor:"bottom",font:{size:11,color:css("--crit")}}],

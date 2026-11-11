@@ -4,7 +4,7 @@
   "design": {
     "pv_kw": 0,
     "bat_kwh": 5,
-    "gen_kw": 3.5,
+    "gen_kw": 10,
     "hp_units": 1,
     "tank_gal": 50,
     "ph_kbtu": 50,

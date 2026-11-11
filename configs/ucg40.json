@@ -31,7 +31,16 @@
   "loads": {
     "comms_w": 200,
     "medical_w": 0,
-    "refrigeration_kwh_day": 3.5,
+    "refrigeration_kwh_day": 5.0,
+    "lighting_w": 750,
+    "lighting_hours": 12,
+    "lighting_start_hour": 8,
+    "cooking_w": 3000,
+    "cooking_hours": [
+      7,
+      12,
+      17
+    ],
     "cooking_kwh_person_day": 0,
     "dhw_l_person_day": 20,
     "dhw_cop": 2.8
@@ -87,14 +96,12 @@
       60
     ],
     "gen_kw": [
-      0,
-      5,
-      6,
-      8,
       10,
       12,
       15,
-      20
+      20,
+      25,
+      30
     ],
     "hp_units": [
       0,
@@ -121,7 +128,8 @@
       300,
       350,
       400
-    ]
+    ],
+    "min_gen_kw": 10
   },
   "_window_types": "window_type options: single_pane, single_storm, double_clear, double_lowe, triple_lowe (or set window_u_ip in Btu/h-ft2-F and window_shgc to model a specific NFRC-rated product)",
   "propane": {
@@ -129,5 +137,7 @@
     "lead_below_c": null
   },
   "_hp_models": "hp.model: portable_14k (14,000 Btu/h portable heat/cool unit, default) or cold_climate_12k (mini-split head)",
-  "_propane_models": "propane.model: indirect (vented, for occupied spaces, default) or direct (unvented forced-air). lead_below_c: null = heat pumps heat first; a temperature in C = propane heats first below it"
+  "_propane_models": "propane.model: indirect (vented, for occupied spaces, default) or direct (unvented forced-air). lead_below_c: null = heat pumps heat first; a temperature in C = propane heats first below it",
+  "_loads": "refrigeration_kwh_day: 4-6 kWh/day expected, 5 = midpoint (sensitivity runs 4 and 6). lighting_w on for lighting_hours from lighting_start_hour. cooking_w on for one hour at each hour in cooking_hours (3 h/day).",
+  "_generator": "space.min_gen_kw: designs with a smaller generator (or none) are skipped"
 }

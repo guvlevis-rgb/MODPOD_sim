@@ -9,7 +9,7 @@ Config (JSON): the same sections as the sizing study (building, loads, pv, hp, b
 econ, weights, constraints, weather) plus
 
     "base_config": "ucg40.json",          # optional: inherit a building config, then override
-    "design": {"pv_kw": 0, "bat_kwh": 5, "gen_kw": 5, "hp_units": 1, "tank_gal": 50, "ph_kbtu": 50,
+    "design": {"pv_kw": 0, "bat_kwh": 5, "gen_kw": 10, "hp_units": 1, "tank_gal": 50, "ph_kbtu": 50,
                "inverter_kw": null, "ev_kwh": 0},
     "week":   {"conditions": ["winter", "summer", "flood", "ice_storm"], "days": 7,
                "start_dates": {"winter": "2023-01-20"},              # optional overrides
@@ -45,7 +45,7 @@ CONDITIONS = {
                            "glazes the PV array; ice stays on until crews can clear it a day after the storm, then colder "
                            "air follows."),
 }
-DEFAULT_DESIGN = dict(pv_kw=0.0, bat_kwh=5.0, gen_kw=5.0, hp_kw=2.78, tank_gal=50.0, ph_kbtu=50.0, inverter_kw=None,
+DEFAULT_DESIGN = dict(pv_kw=0.0, bat_kwh=5.0, gen_kw=10.0, hp_kw=2.78, tank_gal=50.0, ph_kbtu=50.0, inverter_kw=None,
                       ev_kwh=None)
 DEFAULT_ICE = dict(storm_hours=36, storm_start_hour=6, ice_clear_hours=24, post_storm_cooling_c=4.0, ghi_factor=0.15,
                    wind_factor=2.5)

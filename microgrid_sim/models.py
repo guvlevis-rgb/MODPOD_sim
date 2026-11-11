@@ -214,12 +214,17 @@ class Loads:
     # critical (never shed)
     comms_w: float = 200.0               # satellite internet, radios, router, phone charging kiosk base
     medical_w: float = 0.0               # oxygen concentrator / CPAP / med fridge
-    refrigeration_kwh_day: float = 3.5   # food-service fridge + freezer
+    refrigeration_kwh_day: float = 5.0   # food-service fridge + freezer (4-6 kWh/day; 5 = midpoint)
     controls_w: float = 60.0             # pod controller, BMS, remote monitoring, inverter idle
     # essential
-    lighting_w_m2: float = 3.0           # LED; full 06-22, 10 % overnight
+    lighting_w: float | None = 750.0     # LED lighting, W while on (None = use lighting_w_m2, 06-22 + 10 % overnight)
+    lighting_hours: float = 12.0         # hours per day the lights are on
+    lighting_start_hour: int = 8         # lights on 08:00-20:00 by default
+    lighting_w_m2: float = 3.0           # used only when lighting_w is None
     water_system_w: float = 150.0        # pressure pump + UV treatment
-    cooking_kwh_person_day: float = 0.0   # induction / electric food service
+    cooking_w: float = 3000.0            # electric cooking (induction / hot plates / ovens), W while on
+    cooking_hours: list = field(default_factory=lambda: [7, 12, 17])   # one hour per meal = 3 h/day
+    cooking_kwh_person_day: float = 0.0   # optional extra cooking energy scaled by occupants
     # discretionary (shed first)
     charging_wh_person_day: float = 25.0  # phones, laptops
     dhw_l_person_day: float = 20.0        # hot water use
@@ -232,12 +237,20 @@ class Loads:
         h = hours % 24
         crit = np.full(h.shape, (self.comms_w + self.medical_w + self.controls_w) / 1000.0
                        + self.refrigeration_kwh_day / 24.0)
-        light = np.where((h >= 6) & (h < 22), 1.0, 0.1) * self.lighting_w_m2 * floor_area / 1000.0
+        if self.lighting_w is None:
+            light = np.where((h >= 6) & (h < 22), 1.0, 0.1) * self.lighting_w_m2 * floor_area / 1000.0
+        else:
+            # fraction of each hour the lights are on (handles fractional hours, wraps past midnight)
+            on = np.clip(self.lighting_hours - (h - self.lighting_start_hour) % 24, 0.0, 1.0)
+            light = on * self.lighting_w / 1000.0
         meal = np.zeros(24)
         meal[[7]] = 0.25
         meal[[12]] = 0.25
         meal[[17, 18]] = 0.25
-        cook = meal[h] * self.cooking_kwh_person_day * occupants
+        cook_on = np.zeros(24)
+        for hr in self.cooking_hours:
+            cook_on[int(hr) % 24] += 1.0
+        cook = meal[h] * self.cooking_kwh_person_day * occupants + cook_on[h] * self.cooking_w / 1000.0
         ess = light + self.water_system_w / 1000.0 + cook
         charge_shape = np.where((h >= 8) & (h < 22), 1 / 14, 0.0)
         charge = charge_shape * self.charging_wh_person_day / 1000.0 * occupants

@@ -32,7 +32,8 @@ GEN_CATALOG = [0, 3.5, 5, 6, 7.5, 8, 10, 12, 13, 15, 17, 20, 25, 30, 35, 40]
 class SweepSpace:
     pv_kw: list = field(default_factory=lambda: [0, 3, 6, 9, 12])
     bat_kwh: list = field(default_factory=lambda: [0, 10, 20, 30, 45, 60])
-    gen_kw: list = field(default_factory=lambda: [0, 5, 6, 8, 10, 12, 15, 20])
+    gen_kw: list = field(default_factory=lambda: [10, 12, 15, 20, 25, 30])
+    min_gen_kw: float = 10.0             # designs with a smaller generator (or none) are not considered
     hp_units: list = field(default_factory=lambda: list(range(0, 9)))
     tank_l: list = field(default_factory=lambda: [190.0, 380.0])           # 50 / 100 gal
     ph_kbtu: list = field(default_factory=lambda: [0, 50, 100, 150, 200, 250, 300, 350, 400])
@@ -211,6 +212,7 @@ def grid(space: SweepSpace) -> pd.DataFrame:
     df = pd.DataFrame(rows, columns=DESIGN_COLS).astype(float)
     # no generator -> no tank; collapse duplicates
     df.loc[df.gen_kw == 0, "tank_l"] = 0.0
+    df = df[df.gen_kw >= space.min_gen_kw - 1e-9]
     return df.drop_duplicates().reset_index(drop=True)
 
 
@@ -235,6 +237,8 @@ def refine_grid(coarse: pd.DataFrame, space: SweepSpace) -> pd.DataFrame:
                                                    _neighbors(r.hp_units, 1.0, lo=0.0, n=1),
                                                    tanks[max(0, ti - 1): ti + 2],
                                                    _neighbors(r.ph_kbtu, 50.0, lo=0.0, n=1)):
+            if g < space.min_gen_kw - 1e-9:
+                continue
             rows.add((p, b, g, h, 0.0 if g == 0 else tk, q))
     return pd.DataFrame(sorted(rows), columns=DESIGN_COLS).astype(float)
 
