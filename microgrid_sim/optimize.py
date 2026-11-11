@@ -1,8 +1,10 @@
 """Design-space sweep, constraint screening, cost/weight evaluation and optimization.
 
-Stage 1  coarse full-factorial sweep over PV kW x battery kWh x generator kW x heat-pump units
+Stage 1  coarse full-factorial sweep over PV kW x battery kWh x generator kW x heat-pump units x
+         propane-heater kBtu/h x fuel tank
 Stage 2  local refinement around the best feasible designs at purchasable increments
-         (PV in 2-panel steps, battery in 5 kWh modules, catalog generator sizes, whole heat-pump heads)
+         (PV in 2-panel steps, battery in 5 kWh modules, catalog generator sizes, whole heat-pump units,
+         propane heaters in 50 kBtu/h steps)
 Each candidate is simulated through every design window; a design is feasible only if it
 holds the building between the temperature limits and serves the load in all of them,
 while fitting the trailer payload and array footprint.
@@ -16,11 +18,11 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from .models import (Battery, Building, Constraints, Economics, EVSupport, Generator, HeatPump, Loads,
-                     PVArray, Weights)
+from .models import (KW_PER_KBTUH, Battery, Building, Constraints, Economics, EVSupport, Generator, HeatPump,
+                     Loads, PropaneHeater, PVArray, Weights)
 from .simulate import Scenario, build_scenario, simulate
 
-DESIGN_COLS = ["pv_kw", "bat_kwh", "gen_kw", "hp_units", "tank_l"]
+DESIGN_COLS = ["pv_kw", "bat_kwh", "gen_kw", "hp_units", "tank_l", "ph_kbtu"]
 warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 
 GEN_CATALOG = [0, 3.5, 5, 6, 7.5, 8, 10, 12, 13, 15, 17, 20, 25, 30, 35, 40]
@@ -28,11 +30,12 @@ GEN_CATALOG = [0, 3.5, 5, 6, 7.5, 8, 10, 12, 13, 15, 17, 20, 25, 30, 35, 40]
 
 @dataclass
 class SweepSpace:
-    pv_kw: list = field(default_factory=lambda: [0, 3, 6, 9, 12, 15, 18, 21])
-    bat_kwh: list = field(default_factory=lambda: [0, 10, 20, 30, 45, 60, 80, 100])
-    gen_kw: list = field(default_factory=lambda: [0, 6, 8, 10, 12, 15, 20, 25, 30])
-    hp_units: list = field(default_factory=lambda: list(range(2, 17)))
-    tank_l: list = field(default_factory=lambda: [190.0, 380.0, 570.0])   # 50 / 100 / 150 gal
+    pv_kw: list = field(default_factory=lambda: [0, 3, 6, 9, 12])
+    bat_kwh: list = field(default_factory=lambda: [0, 10, 20, 30, 45, 60])
+    gen_kw: list = field(default_factory=lambda: [0, 5, 6, 8, 10, 12, 15, 20])
+    hp_units: list = field(default_factory=lambda: list(range(0, 9)))
+    tank_l: list = field(default_factory=lambda: [190.0, 380.0])           # 50 / 100 gal
+    ph_kbtu: list = field(default_factory=lambda: [0, 50, 100, 150, 200, 250, 300, 350, 400])
     refine_top_k: int = 6
     pv_step: float = 0.8                 # two 400 W modules
     bat_step: float = 5.0                # one rack module
@@ -44,6 +47,7 @@ class Study:
     loads: Loads = field(default_factory=Loads)
     pv: PVArray = field(default_factory=PVArray)
     hp: HeatPump = field(default_factory=HeatPump)
+    propane: PropaneHeater = field(default_factory=PropaneHeater)
     battery: Battery = field(default_factory=Battery)
     generator: Generator = field(default_factory=Generator)
     ev: EVSupport = field(default_factory=EVSupport)
@@ -61,8 +65,12 @@ def make_scenarios(study: Study, wy, windows) -> list[Scenario]:
 def evaluate(study: Study, scenarios: list[Scenario], designs: pd.DataFrame) -> pd.DataFrame:
     """Simulate every design through every scenario and attach cost / weight / feasibility."""
     d = designs.reset_index(drop=True).copy()
+    if "ph_kbtu" not in d:
+        d["ph_kbtu"] = 0.0
     hp_kw = d.hp_units.values * study.hp.unit_kw
     d["hp_kw"] = hp_kw
+    ph_kw = d.ph_kbtu.values * KW_PER_KBTUH
+    lp = study.propane
     c, e, w = study.constraints, study.econ, study.weights
     ok = np.ones(len(d), bool)
     reason = np.full(len(d), "", dtype=object)
@@ -78,10 +86,12 @@ def evaluate(study: Study, scenarios: list[Scenario], designs: pd.DataFrame) -> 
     peak = np.zeros(len(d))
     exp_fuel_day = np.zeros(len(d))
     exp_gen_h_day = np.zeros(len(d))
+    exp_lp_day = np.zeros(len(d))
+    worst_lp_day = np.zeros(len(d))
     wsum = 0.0
     for sc in scenarios:
         r = simulate(sc, d.pv_kw.values, d.bat_kwh.values, d.gen_kw.values, hp_kw, study.building, study.hp,
-                     study.battery, study.generator, study.ev, tank_l=d.tank_l.values)
+                     study.battery, study.generator, study.ev, tank_l=d.tank_l.values, ph_kw=ph_kw, ph=lp)
         k = sc.key
         days = sc.hours / 24
         d[f"fuel_l_{k}"] = r["fuel_l"]
@@ -97,11 +107,16 @@ def evaluate(study: Study, scenarios: list[Scenario], designs: pd.DataFrame) -> 
         d[f"autonomy_d_{k}"] = r["autonomy_h"] / 24
         d[f"demand_kwh_{k}"] = r["demand"]
         d[f"curtail_kwh_{k}"] = r["curtail"]
+        d[f"propane_gal_{k}"] = r["propane_gal"]
+        d[f"propane_gpd_{k}"] = r["propane_gal"] / days
+        d[f"ph_heat_kwh_{k}"] = r["ph_heat_kwh"]
+        d[f"hp_heat_kwh_{k}"] = r["heat_kwh"]
         peak = np.maximum(peak, r["peak_load"])
         if k == "endurance":
             # fuel the whole stretch would need with unlimited tank (-> refuel deliveries)
             r2 = simulate(sc, d.pv_kw.values, d.bat_kwh.values, d.gen_kw.values, hp_kw, study.building, study.hp,
-                          study.battery, study.generator, study.ev, tank_l=1e7)
+                          study.battery, study.generator, study.ev, tank_l=1e7, ph_kw=ph_kw, ph=lp)
+            d["propane_need_gal_endurance"] = r2["propane_gal"]
             d["fuel_need_l_endurance"] = r2["fuel_l"]
             d["unmet_unlim_endurance"] = r2["unmet"]
             flag(r["autonomy_h"] / 24 < c.min_autonomy_days - 1e-9, "fuel autonomy below target")
@@ -116,27 +131,41 @@ def evaluate(study: Study, scenarios: list[Scenario], designs: pd.DataFrame) -> 
         flag(fail_hot, f"too hot ({sc.label})")
         wk = e.scenario_weights.get(k, 0.0)
         exp_fuel_day += wk * r["fuel_l"] / days
+        exp_lp_day += wk * r["propane_gal"] / days
+        worst_lp_day = np.maximum(worst_lp_day, r["propane_gal"] / days)
         exp_gen_h_day += wk * r["gen_hours"] / days
         wsum += wk
     if wsum > 0:
         exp_fuel_day /= wsum
         exp_gen_h_day /= wsum
+        exp_lp_day /= wsum
+    # propane carried on the trailer: enough for `propane_days_onboard` days of the worst design window
+    lp_onboard = worst_lp_day * c.propane_days_onboard
+    n_cyl = np.ceil(lp_onboard / lp.gal_per_cylinder - 1e-9).clip(min=0) + 0.0
+    d["propane_worst_gpd"] = worst_lp_day
+    d["exp_propane_gal_per_day"] = exp_lp_day
+    d["propane_onboard_gal"] = lp_onboard
+    d["propane_cylinders"] = n_cyl
 
     inv_kw = np.maximum(3.0, np.ceil(peak * 1.15))
     d["inverter_kw"] = inv_kw
     d["peak_kw"] = peak
     capex = (d.pv_kw * e.pv_usd_per_kw + d.bat_kwh * e.battery_usd_per_kwh + inv_kw * e.inverter_usd_per_kw
              + np.where(d.gen_kw > 0, e.gen_usd_fixed + e.gen_usd_per_kw * d.gen_kw + e.tank_usd_per_l * d.tank_l, 0.0)
-             + hp_kw * e.hp_usd_per_kw)
+             + d.hp_units * study.hp.unit_cost_usd
+             + np.where(d.ph_kbtu > 0, lp.usd_fixed + lp.usd_per_kbtu * d.ph_kbtu, 0.0) + n_cyl * lp.cylinder_usd)
     d["capex_usd"] = capex
     d["exp_fuel_l_per_day"] = exp_fuel_day
     fuel_usd = e.fuel_usd_per_l + e.carbon_usd_per_t * study.generator.co2_kg_per_l / 1000.0
-    annual = e.deployment_days_per_year * (exp_fuel_day * fuel_usd + exp_gen_h_day * e.gen_om_usd_per_hour)
+    lp_usd = e.propane_usd_per_gal + e.carbon_usd_per_t * lp.co2_kg_per_gal / 1000.0
+    annual = e.deployment_days_per_year * (exp_fuel_day * fuel_usd + exp_gen_h_day * e.gen_om_usd_per_hour
+                                           + exp_lp_day * lp_usd)
     annual = annual - d.pv_kw.values * study.annual_pv_kwh_per_kw * (1 - e.deployment_days_per_year / 365) * e.idle_pv_usd_per_kwh
-    d["exp_co2_kg_per_day"] = exp_fuel_day * study.generator.co2_kg_per_l
+    d["exp_co2_kg_per_day"] = exp_fuel_day * study.generator.co2_kg_per_l + exp_lp_day * lp.co2_kg_per_gal
     d["annual_opex_usd"] = annual
     d["lifecycle_usd"] = capex + e.annuity_factor * annual
-    wb = weight_breakdown(study, d.pv_kw.values, d.bat_kwh.values, d.gen_kw.values, hp_kw, d.tank_l.values, inv_kw)
+    wb = weight_breakdown(study, d.pv_kw.values, d.bat_kwh.values, d.gen_kw.values, hp_kw, d.tank_l.values, inv_kw,
+                          d.ph_kbtu.values, n_cyl)
     for k, v in wb.items():
         d[f"wt_{WEIGHT_KEYS[k]}_kg"] = v
     d["weight_kg"] = sum(wb.values())
@@ -152,10 +181,10 @@ def evaluate(study: Study, scenarios: list[Scenario], designs: pd.DataFrame) -> 
 
 
 WEIGHT_KEYS = {"PV array": "pv", "Battery": "bat", "Inverter": "inv", "Generator": "gen", "Fuel + tank": "fuel",
-               "Heat pumps": "hp", "Fixed pod systems": "fixed"}
+               "Heat pumps": "hp", "Propane heaters": "ph", "Propane cylinders": "lp", "Fixed pod systems": "fixed"}
 
 
-def weight_breakdown(study: Study, pv_kw, bat_kwh, gen_kw, hp_kw, tank_l, inv_kw) -> dict:
+def weight_breakdown(study: Study, pv_kw, bat_kwh, gen_kw, hp_kw, tank_l, inv_kw, ph_kbtu=0.0, cylinders=0.0) -> dict:
     """Payload by component (kg). Works on scalars or arrays."""
     w, g = study.weights, study.generator
     gen_kw = np.asarray(gen_kw, float)
@@ -166,13 +195,19 @@ def weight_breakdown(study: Study, pv_kw, bat_kwh, gen_kw, hp_kw, tank_l, inv_kw
         "Inverter": np.asarray(inv_kw, float) * w.inverter_kg_per_kw,
         "Generator": np.where(has_gen, w.gen_kg_fixed + w.gen_kg_per_kw * gen_kw, 0.0),
         "Fuel + tank": np.where(has_gen, np.asarray(tank_l, float) * (g.fuel_density + w.tank_kg_per_l), 0.0),
-        "Heat pumps": np.asarray(hp_kw, float) * w.hp_kg_per_kw,
+        "Heat pumps": np.asarray(hp_kw, float) / study.hp.unit_kw * study.hp.unit_weight_kg,
+        "Propane heaters": np.where(np.asarray(ph_kbtu, float) > 0,
+                                    study.propane.kg_fixed + study.propane.kg_per_kbtu * np.asarray(ph_kbtu, float), 0.0)
+                           * np.ones(np.shape(gen_kw)),
+        "Propane cylinders": np.asarray(cylinders, float) * (study.propane.cylinder_tare_kg + study.propane.gal_per_cylinder
+                                                             * study.propane.kg_per_gal) * np.ones(np.shape(gen_kw)),
         "Fixed pod systems": np.full(np.shape(gen_kw), w.fixed_payload_kg, dtype=float),
     }
 
 
 def grid(space: SweepSpace) -> pd.DataFrame:
-    rows = list(itertools.product(space.pv_kw, space.bat_kwh, space.gen_kw, space.hp_units, space.tank_l))
+    rows = list(itertools.product(space.pv_kw, space.bat_kwh, space.gen_kw, space.hp_units, space.tank_l,
+                                  space.ph_kbtu))
     df = pd.DataFrame(rows, columns=DESIGN_COLS).astype(float)
     # no generator -> no tank; collapse duplicates
     df.loc[df.gen_kw == 0, "tank_l"] = 0.0
@@ -194,12 +229,13 @@ def refine_grid(coarse: pd.DataFrame, space: SweepSpace) -> pd.DataFrame:
     for _, r in top.iterrows():
         tanks = sorted(space.tank_l)
         ti = int(np.argmin(np.abs(np.array(tanks) - (r.tank_l or tanks[0]))))
-        for p, b, g, h, tk in itertools.product(_neighbors(r.pv_kw, space.pv_step, n=4),
-                                                _neighbors(r.bat_kwh, space.bat_step, n=3),
-                                                _gen_neighbors(r.gen_kw),
-                                                _neighbors(r.hp_units, 1.0, lo=1.0, n=1),
-                                                tanks[max(0, ti - 1): ti + 2]):
-            rows.add((p, b, g, h, 0.0 if g == 0 else tk))
+        for p, b, g, h, tk, q in itertools.product(_neighbors(r.pv_kw, space.pv_step, n=3),
+                                                   _neighbors(r.bat_kwh, space.bat_step, n=2),
+                                                   _gen_neighbors(r.gen_kw),
+                                                   _neighbors(r.hp_units, 1.0, lo=0.0, n=1),
+                                                   tanks[max(0, ti - 1): ti + 2],
+                                                   _neighbors(r.ph_kbtu, 50.0, lo=0.0, n=1)):
+            rows.add((p, b, g, h, 0.0 if g == 0 else tk, q))
     return pd.DataFrame(sorted(rows), columns=DESIGN_COLS).astype(float)
 
 

@@ -1,12 +1,13 @@
 {
-  "_about": "One-week HMI simulation of the ucg40 base case at the sizing study's recommended sizes. Change the design values to try other sizes.",
+  "_about": "One-week HMI simulation of the ucg40 base case at the sizing study's recommended sizes: propane heaters carry the winter heat, one portable unit cools in summer.",
   "base_config": "ucg40.json",
   "design": {
-    "pv_kw": 1.4,
-    "bat_kwh": 10,
-    "gen_kw": 10,
-    "hp_kw": 24.5,
+    "pv_kw": 0,
+    "bat_kwh": 5,
+    "gen_kw": 3.5,
+    "hp_units": 1,
     "tank_gal": 50,
+    "ph_kbtu": 50,
     "inverter_kw": null,
     "ev_kwh": 0
   },

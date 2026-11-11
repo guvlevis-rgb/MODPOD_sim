@@ -35,6 +35,8 @@ def main():
     wk.add_argument("--generator", type=float, help="generator kW (0 = none)")
     wk.add_argument("--heat-pumps", type=float, help="heat-pump heating capacity kW")
     wk.add_argument("--tank", type=float, help="fuel tank gallons")
+    wk.add_argument("--propane", type=float, help="propane heater capacity, kBtu/h (50 kBtu/h steps)")
+    wk.add_argument("--units", type=float, help="number of heat/cool units (instead of --heat-pumps kW)")
     rp = sub.add_parser("report", help="rebuild the HTML report and PNGs from a saved results folder")
     rp.add_argument("-o", "--out", default="results")
     a = ap.parse_args()
@@ -46,7 +48,7 @@ def main():
         conds = None if not a.condition or "all" in a.condition else a.condition
         run_week(cfg, out_dir=a.out, conditions=conds,
                  design_overrides=dict(pv_kw=a.pv, bat_kwh=a.battery, gen_kw=a.generator, hp_kw=a.heat_pumps,
-                                       tank_gal=a.tank))
+                                       tank_gal=a.tank, ph_kbtu=a.propane, hp_units=a.units))
         return
     if a.cmd == "report":
         import pandas as pd

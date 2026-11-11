@@ -425,12 +425,13 @@ def _all_designs(wb, res):
           "Every combination simulated (coarse sweep + refinement). Use the filter arrows to explore. "
           "Fuel and temperature columns are for the named design window.")
     cols = [("pv_kw", "PV (kW)", NF["kw"]), ("bat_kwh", "Battery (kWh)", "0"), ("gen_kw", "Generator (kW)", NF["kw"]),
-            ("tank_l", "Tank (L)", "0"), ("hp_kw", "Heat pumps (kW)", NF["kw"]), ("capex_usd", "Capex ($)", NF["usd"]),
+            ("tank_l", "Tank (L)", "0"), ("hp_units", "Heat/cool units", "0"), ("ph_kbtu", "Propane (kBtu/h)", "0"),
+            ("propane_worst_gpd", "Propane worst (gal/day)", NF["d1"]), ("capex_usd", "Capex ($)", NF["usd"]),
             ("lifecycle_usd", "Lifecycle ($)", NF["usd"]), ("weight_kg", "Payload (kg)", "#,##0"),
             ("exp_fuel_l_per_day", "Expected fuel (L/day)", NF["d1"]),
             ("fuel_lpd_cold_snap", "Cold-snap fuel (L/day)", NF["d1"]),
             ("t_min_cold_snap", "Cold-snap low (°C)", NF["d1"]),
-            ("autonomy_d_endurance", "Autonomy (days)", NF["d1"]),
+            ("autonomy_d_endurance", "Diesel autonomy (days)", NF["d1"]),
             ("feasible", "Feasible", None), ("fail_reason", "First failed check", None), ("stage", "Stage", None)]
     cols = [c for c in cols if c[0] in sw.columns]
     hdr = [c[1] for c in cols]
@@ -569,18 +570,19 @@ def _feasible(wb, res):
           "Row 1 of the table is the recommended design.")
     keys = [c for c in fe.columns if c.startswith("fuel_lpd_")]
     wins = [k.replace("fuel_lpd_", "") for k in keys]
-    hdr = ["Rank", "PV (kW)", "Battery (kWh)", "Generator (kW)", "Tank (gal)", "Heat pumps (kW)", "Inverter (kW)",
-           "Capex ($)", "Lifecycle ($)", "Payload (lb)", "Expected fuel (gal/day)", "Autonomy (days)"] + \
-          [f"{WINDOW_SHEET.get(w, w)} fuel (gal/day)" for w in wins] + \
+    hdr = ["Rank", "PV (kW)", "Battery (kWh)", "Generator (kW)", "Tank (gal)", "Heat/cool units", "Inverter (kW)",
+           "Capex ($)", "Lifecycle ($)", "Payload (lb)", "Expected diesel (gal/day)", "Autonomy (days)",
+           "Propane heaters (kBtu/h)", "Propane worst (gal/day)"] + \
+          [f"{WINDOW_SHEET.get(w, w)} diesel (gal/day)" for w in wins] + \
           [f"{WINDOW_SHEET.get(w, w)} low (°F)" for w in wins]
     rows = []
     for i, (_, r) in enumerate(fe.iterrows()):
-        rows.append([i + 1, r.pv_kw, r.bat_kwh, r.gen_kw, r.tank_l / L_PER_GAL, r.hp_kw, r.inverter_kw, r.capex_usd,
+        rows.append([i + 1, r.pv_kw, r.bat_kwh, r.gen_kw, r.tank_l / L_PER_GAL, r.hp_units, r.inverter_kw, r.capex_usd,
                      r.lifecycle_usd, r.weight_kg / KG_PER_LB, r.exp_fuel_l_per_day / L_PER_GAL,
-                     r.get("autonomy_d_endurance", np.nan)]
+                     r.get("autonomy_d_endurance", np.nan), r.get("ph_kbtu", 0), r.get("propane_worst_gpd", 0)]
                     + [r[k] / L_PER_GAL for k in keys] + [float(c2f(r[f"t_min_{w}"])) for w in wins])
-    fm = ["0", NF["kw"], "0", NF["kw"], "0", NF["kw"], "0", NF["usd"], NF["usd"], NF["lb"], NF["d1"], NF["d1"]] + \
-         [NF["d1"]] * len(wins) * 2
+    fm = ["0", NF["kw"], "0", NF["kw"], "0", "0", "0", NF["usd"], NF["usd"], NF["lb"], NF["d1"], NF["d1"], "0",
+          NF["d1"]] + [NF["d1"]] * len(wins) * 2
     a, b = table(ws, 4, 1, hdr, rows, fmts=fm, widths=[6] + [11] * (len(hdr) - 1))
     for j in range(1, len(hdr) + 1):
         ws.cell(a, j).fill = FILL_KEY
@@ -590,25 +592,27 @@ def _feasible(wb, res):
 
 
 def _cases(ws, row, rows, first_label):
-    hdr = [first_label, "PV (kW)", "Battery (kWh)", "Generator (kW)", "Tank (gal)", "Heat pumps (kW)", "Capex ($)",
-           "Lifecycle ($)", "Payload (lb)", "Fuel (gal/day)", "Autonomy (days)", "14-day fuel need (gal)",
-           "Note"]
+    hdr = [first_label, "PV (kW)", "Battery (kWh)", "Generator (kW)", "Tank (gal)", "Heat/cool units", "Capex ($)",
+           "Lifecycle ($)", "Payload (lb)", "Diesel (gal/day)", "Autonomy (days)", "14-day diesel need (gal)",
+           "Propane heaters (kBtu/h)", "Propane (gal/day)", "14-day propane need (gal)", "Note"]
     out = []
     for r in rows:
         if r.get("feasible"):
-            out.append([r["case"], r["pv_kw"], r["bat_kwh"], r["gen_kw"], r["tank_l"] / L_PER_GAL, r["hp_kw"],
+            out.append([r["case"], r["pv_kw"], r["bat_kwh"], r["gen_kw"], r["tank_l"] / L_PER_GAL, r.get("hp_units"),
                         r["capex_usd"], r["lifecycle_usd"], r["weight_kg"] / KG_PER_LB, r["fuel_l_per_day"] / L_PER_GAL,
-                        r.get("autonomy_days"), (r.get("fuel_need_14d_l") or 0) / L_PER_GAL, None])
+                        r.get("autonomy_days"), (r.get("fuel_need_14d_l") or 0) / L_PER_GAL,
+                        r.get("ph_kbtu"), r.get("propane_gal_per_day"), r.get("propane_need_14d_gal"), None])
         else:
             note = f"No feasible design. Binding limit: {r.get('binding') or '-'}"
             if r.get("max_autonomy_days") is not None:
                 note += f"; best achievable {r['max_autonomy_days']:.1f} days"
-            out.append([r["case"]] + [None] * 11 + [note])
-    fm = [None, NF["kw"], "0", NF["kw"], "0", NF["kw"], NF["usd"], NF["usd"], NF["lb"], NF["d1"], NF["d1"], "#,##0", None]
-    a, b = table(ws, row, 1, hdr, out, fmts=fm, widths=[32, 9, 10, 11, 9, 11, 11, 12, 11, 10, 10, 12, 60])
+            out.append([r["case"]] + [None] * 14 + [note])
+    fm = [None, NF["kw"], "0", NF["kw"], "0", "0", NF["usd"], NF["usd"], NF["lb"], NF["d1"], NF["d1"], "#,##0",
+          "0", NF["d1"], "#,##0", None]
+    a, b = table(ws, row, 1, hdr, out, fmts=fm, widths=[32, 9, 10, 11, 9, 10, 11, 12, 11, 10, 10, 12, 12, 11, 12, 60])
     for i, r in enumerate(rows):
         if not r.get("feasible"):
-            ws.cell(a + i, 13).font = F_BAD
+            ws.cell(a + i, 16).font = F_BAD
     return a, b
 
 
@@ -633,7 +637,7 @@ def _sensitivity(wb, P):
     title(ws, "Building and occupant sensitivity",
           "Each row changes one input and re-runs the full sweep and optimization; sizes are the new optimum.")
     a, b = _cases(ws, 4, P["sensitivity"], "Case")
-    for j in range(1, 14):
+    for j in range(1, 17):
         ws.cell(a, j).fill = FILL_KEY
     ch = _hbar()
     ch.add_data(Reference(ws, min_col=7, min_row=a - 1, max_row=b), titles_from_data=True)
@@ -730,15 +734,16 @@ def _findings(P):
     B = P["best"]
     if "cold_snap" in d:
         m = d["cold_snap"]["m"]
-        f.append(f"Heating sets the size. In the cold snap the heat pumps draw {m['hvac'] / m['demand']:.0%} of all "
-                 f"electricity and the generator burns {m['fuel_gal'] / m['days']:.1f} gal/day; the shelter bottoms out "
-                 f"at {m['t_min']:.1f} °F.")
+        ph_share = m.get("ph_heat", 0) / max(m.get("ph_heat", 0) + m["heat"], 1e-9)
+        f.append(f"Heating sets the size. In the cold snap the propane heaters supply {ph_share:.0%} of the heat, burning "
+                 f"{m.get('propane_gal', 0) / m['days']:.1f} gal of propane a day, while the generator burns "
+                 f"{m['fuel_gal'] / m['days']:.1f} gal/day of diesel; the shelter bottoms out at {m['t_min']:.1f} °F.")
     ua = sorted(zip(P["ua"]["labels"], P["ua"]["w_k"]), key=lambda t: -t[1])
     tot = sum(v for _, v in ua)
     f.append(f"{ua[0][0]} ({ua[0][1] / tot:.0%}) and {ua[1][0].lower()} ({ua[1][1] / tot:.0%}) are the largest heat-loss "
              f"paths. A heat-recovery ventilator or a tighter building shrinks every component (Sensitivity sheet).")
     if B["pv_kw"] < 2:
-        f.append(f"PV barely enters the optimum: with about {P['deploy_days']:.0f} deployment days a year the fuel saved "
+        f.append(f"PV {'does not enter' if B['pv_kw'] < 0.05 else 'barely enters'} the optimum: with about {P['deploy_days']:.0f} deployment days a year the fuel saved "
                  f"does not repay the array. PV earns its place when the array is net-metered while parked, or when "
                  f"fuel autonomy matters more than cost.")
     else:
@@ -776,7 +781,8 @@ def _summary(wb, res, P, window_sheets):
             ("Battery (LFP)", B["bat_kwh"], "kWh", f"usable {B['bat_kwh'] * (1 - st.battery.soc_min):.1f} kWh", "0"),
             ("Diesel generator", B["gen_kw"], "kW", f"cycle charging {st.generator.soc_start:.0%}->{st.generator.soc_stop:.0%} SOC", NF["kw"]),
             ("Fuel tank", B["tank_l"], "L", None, "0"),
-            ("Heat pumps", B["hp_kw"], "kW", f"{int(B['hp_units'])} x {P['hp_unit_kw']} kW cold-climate heads", NF["kw"]),
+            ("Heat/cool units", B["hp_units"], "units", f"{P['hp_label']}, {B['hp_kw']:.1f} kW heat", "0"),
+            ("Propane heaters", B.get("ph_kbtu", 0), "kBtu/h", f"{P['ph_label']}; {B.get('propane_cylinders', 0):.0f} x 100-lb cylinders on board", "0"),
             ("Inverter / charger", B["inverter_kw"], "kW", f"peak load {B['peak_kw']:.1f} kW", "0")]
     for i, (lab, v, u, det, fmt) in enumerate(comp):
         r = 6 + i
@@ -795,9 +801,10 @@ def _summary(wb, res, P, window_sheets):
         ("Payload", B["weight_kg"], "#,##0", "kg", "Energy equipment + fixed systems + full fuel tank"),
         ("Payload", "=B17/KG_PER_LB", NF["lb"], "lb", None),
         ("Payload margin", "=PAYLOAD_LB-B18", NF["lb"], "lb", "Trailer limit minus payload"),
-        ("Worst 3-day fuel use", None, NF["d1"], "gal/day", "Highest of the 3-day design windows (linked below)"),
+        ("Worst 3-day diesel use", None, NF["d1"], "gal/day", "Highest of the 3-day design windows (linked below)"),
         ("Fuel autonomy, worst winter stretch", B.get("autonomy_d_endurance"), NF["d1"], "days", "On one tank, no resupply"),
-        ("Expected fuel per deployment day", "=" + str(B["exp_fuel_l_per_day"]) + "/L_PER_GAL", NF["d1"], "gal/day",
+        ("Worst 3-day propane use", B.get("propane_worst_gpd", 0), NF["d1"], "gal/day", "Propane heaters, worst 3-day window"),
+        ("Expected diesel per deployment day", "=" + str(B["exp_fuel_l_per_day"]) + "/L_PER_GAL", NF["d1"], "gal/day",
          "Weighted across design windows"),
     ]
     for i, (lab, v, fmt, u, note) in enumerate(outs):
@@ -843,8 +850,19 @@ def _summary(wb, res, P, window_sheets):
     ch.gapWidth = 60
     ws.add_chart(ch, "F4")
 
-    # findings
+    # fuel needed
     fr = last + 3
+    F = P.get("fuel") or []
+    if F:
+        put(ws, fr, 1, "Fuel needed by the recommended design (unlimited fuel, full requirement)", F_H2)
+        fa, fb = table(ws, fr + 1, 1, ["Period", "Days", "", "Diesel (gal)", "Diesel (gal/day)", "Propane (gal)",
+                                       "Propane (gal/day)", "Propane (lb)", "100-lb cylinders"],
+                       [[f["period"], f["days"], None, f["diesel_gal"], f["diesel_gal_per_day"], f["propane_gal"],
+                         f["propane_gal_per_day"], f["propane_lb"], f["propane_cylinders"]] for f in F],
+                       fmts=[None, "0", None, NF["d1"], NF["d1"], NF["d1"], NF["d1"], "#,##0", "0"])
+        fr = fb + 3
+
+    # findings
     put(ws, fr, 1, "What the study found", F_H2)
     for i, t in enumerate(_findings(P)):
         ws.merge_cells(start_row=fr + 1 + i, start_column=1, end_row=fr + 1 + i, end_column=11)
@@ -1003,7 +1021,8 @@ def _gen_battery(wb, res, P):
         bc.grouping = "stacked"
         bc.overlap = 100
         ccol = {"PV array": C["pv"], "Battery": C["bat"], "Inverter": C["mute"], "Generator": C["gen"],
-                "Fuel + tank": "E87BA4", "Heat pumps": ACCENT, "Fixed pod systems": "B4BEBA"}
+                "Fuel + tank": "E87BA4", "Heat pumps": ACCENT, "Propane heaters": "9C3FB0", "Propane cylinders": "F0B400",
+                "Fixed pod systems": "B4BEBA"}
         for k, cpt in enumerate(comps):
             bc.add_data(Reference(ws, min_col=2 + k, min_row=pr, max_row=pr + len(opts)), titles_from_data=True)
             color_series(bc.series[-1], ccol.get(cpt, C["mute"]))

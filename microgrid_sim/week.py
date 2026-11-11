@@ -9,7 +9,7 @@ Config (JSON): the same sections as the sizing study (building, loads, pv, hp, b
 econ, weights, constraints, weather) plus
 
     "base_config": "ucg40.json",          # optional: inherit a building config, then override
-    "design": {"pv_kw": 6, "bat_kwh": 20, "gen_kw": 15, "hp_kw": 35, "tank_gal": 100,
+    "design": {"pv_kw": 0, "bat_kwh": 5, "gen_kw": 5, "hp_units": 1, "tank_gal": 50, "ph_kbtu": 50,
                "inverter_kw": null, "ev_kwh": 0},
     "week":   {"conditions": ["winter", "summer", "flood", "ice_storm"], "days": 7,
                "start_dates": {"winter": "2023-01-20"},              # optional overrides
@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .models import f_to_c
+from .models import KW_PER_KBTUH, f_to_c
 from .optimize import weight_breakdown
 from .simulate import build_scenario, simulate
 from .solar import erbs_decomposition
@@ -35,7 +35,7 @@ KG_PER_LB = 0.453592
 
 CONDITIONS = {
     "winter": dict(label="Winter", title="Winter cold week",
-                   desc="The coldest 7 days of December to February: peak heating, heat pumps at their least efficient, short days."),
+                   desc="The coldest 7 days of December to February: peak heating, mostly from propane, short days."),
     "summer": dict(label="Summer", title="Summer heat week",
                    desc="The hottest 7 days of June to August: cooling to keep the shelter under 90 °F, long sunny days."),
     "flood": dict(label="Flood", title="Spring flood week",
@@ -45,7 +45,8 @@ CONDITIONS = {
                            "glazes the PV array; ice stays on until crews can clear it a day after the storm, then colder "
                            "air follows."),
 }
-DEFAULT_DESIGN = dict(pv_kw=6.0, bat_kwh=20.0, gen_kw=15.0, hp_kw=35.0, tank_gal=100.0, inverter_kw=None, ev_kwh=None)
+DEFAULT_DESIGN = dict(pv_kw=0.0, bat_kwh=5.0, gen_kw=5.0, hp_kw=2.78, tank_gal=50.0, ph_kbtu=50.0, inverter_kw=None,
+                      ev_kwh=None)
 DEFAULT_ICE = dict(storm_hours=36, storm_start_hour=6, ice_clear_hours=24, post_storm_cooling_c=4.0, ghi_factor=0.15,
                    wind_factor=2.5)
 
@@ -91,7 +92,7 @@ def resolve_design(cfg: dict, st) -> dict:
         d["hp_kw"] = float(d["hp_units"]) * st.hp.unit_kw
     if d.get("tank_l") is not None:
         d["tank_gal"] = float(d["tank_l"]) / L_PER_GAL
-    for k in ("pv_kw", "bat_kwh", "gen_kw", "hp_kw", "tank_gal"):
+    for k in ("pv_kw", "bat_kwh", "gen_kw", "hp_kw", "tank_gal", "ph_kbtu"):
         d[k] = float(d[k])
         if d[k] < 0:
             raise ValueError(f"design.{k} cannot be negative")
@@ -224,9 +225,16 @@ def _events(S, st, design, times):
         a, _ = edges(S["fuel_pct"] < 0.5)
         for i in a:
             add(i, "alarm", "Fuel tank empty: generator unavailable")
-    a, _ = edges((S["q_need"] - S["q_heat"] - S["q_cool"] > 0.3) & (S["shed_hvac"] < 0.01))
+    a, _ = edges((S["q_need"] - S["q_heat"] - S["q_ph"] - S["q_cool"] > 0.3) & (S["shed_hvac"] < 0.01))
     for i in a:
-        add(i, "warn", f"Heat pumps at full capacity: {S['q_need'][i] - S['q_heat'][i] - S['q_cool'][i]:.1f} kW short")
+        add(i, "warn", f"Heating/cooling at full capacity: "
+                       f"{S['q_need'][i] - S['q_heat'][i] - S['q_ph'][i] - S['q_cool'][i]:.1f} kW short")
+    if design["ph_kbtu"] > 0:
+        on2, off2 = edges(S["q_ph"] > 0.05)
+        for i in on2:
+            add(i, "info", f"Propane heaters firing: {S['q_ph'][i]:.1f} kW of heat")
+        for i in off2:
+            add(i, "info", "Propane heaters off")
     if design["pv_kw"] > 0:
         a, b = edges(S["pv_cover"] > 0.5)
         for i in a:
@@ -253,7 +261,8 @@ def run_condition(st, wy, design, cond, wcfg):
         st2.ev.available_kwh = float(design["ev_kwh"])
     tank_l = design["tank_gal"] * L_PER_GAL
     r = simulate(sc, [design["pv_kw"]], [design["bat_kwh"]], [design["gen_kw"]], [design["hp_kw"]], st2.building,
-                 st2.hp, st2.battery, st2.generator, st2.ev, record=True, tank_l=tank_l)
+                 st2.hp, st2.battery, st2.generator, st2.ev, record=True, tank_l=tank_l,
+                 ph_kw=design["ph_kbtu"] * KW_PER_KBTUH, ph=st2.propane)
     R = {k: v[:, 0] for k, v in r["series"].items()}
     T = len(wdf)
     tp = st.building.thermal_params()
@@ -268,6 +277,7 @@ def run_condition(st, wy, design, cond, wcfg):
     S["fuel_gal"] = R["fuel_left"] / L_PER_GAL
     S["fuel_gph"] = R["fuel_rate"] / L_PER_GAL
     S["fuel_pct"] = np.divide(R["fuel_left"], tank_l, out=np.zeros(T), where=tank_l > 0) * 100
+    S["propane_used"] = np.cumsum(R["propane_gph"])
     S["gen_load_pct"] = np.divide(R["gen_out"], design["gen_kw"], out=np.zeros(T), where=design["gen_kw"] > 0) * 100
     S["solar_gain"] = sc.solar_gain_kw
     S["internal_gain"] = sc.gain_conv_kw + sc.gain_mass_kw - sc.solar_gain_kw
@@ -289,7 +299,9 @@ def run_condition(st, wy, design, cond, wcfg):
         gen_starts=int(r["gen_starts"][0]), fuel_gal=float(R["fuel_rate"].sum() / L_PER_GAL),
         fuel_left_gal=float(R["fuel_left"][-1] / L_PER_GAL), bat_dis=float(R["bat_dis"].sum()),
         bat_ch=float(R["bat_ch"].sum()), ev_kwh=float(R["ev"].sum()), heat=float(R["q_heat"].sum()),
-        cool=float(R["q_cool"].sum()), hvac=float(R["hvac"].sum()), t_min=float(S["t_in"].min()),
+        cool=float(R["q_cool"].sum()), hvac=float(R["hvac"].sum()), ph_heat=float(R["q_ph"].sum()),
+        propane_gal=float(R["propane_gph"].sum()), ph_fan=float(R["ph_fan"].sum()),
+        propane_worst_3d=float(pd.Series(R["propane_gph"]).rolling(72, min_periods=1).sum().max()), t_min=float(S["t_in"].min()),
         t_max=float(S["t_in"].max()), hours_cold=int((S["t_in"] < S["t_min_f"]).sum()),
         hours_hot=int((S["t_in"] > S["t_max_f"]).sum()), soc_min=float(S["soc"].min()) if design["bat_kwh"] else None,
         balance_err=float(np.abs(bal).max()), peak_load=float(R["load"].max()),
@@ -301,7 +313,8 @@ def run_condition(st, wy, design, cond, wcfg):
             "gen_on", "gen_load_pct", "fuel_gph", "fuel_gal", "fuel_pct", "bat_dis", "bat_ch", "soc", "soc_kwh", "ev",
             "ev_left", "load", "crit", "ess", "disc", "hvac_dem", "hvac", "shed_crit", "shed_ess", "shed_disc",
             "shed_hvac", "unmet", "q_heat", "q_cool", "q_need", "hp_cap", "cop", "t_in", "t_mass", "t_out", "q_loss",
-            "solar_gain", "internal_gain", "ghi", "wind_mph", "pv_cover"]
+            "solar_gain", "internal_gain", "ghi", "wind_mph", "pv_cover", "q_ph", "propane_gph", "ph_fan",
+            "propane_used"]
     series = {k: [round(float(x), 3) for x in np.asarray(S[k], float)] for k in keep}
     return dict(key=cond, **CONDITIONS[cond], notes=notes, start=str(wdf.index[0].date()),
                 end=str((wdf.index[-1]).date()), time=[t.strftime("%Y-%m-%dT%H:%M") for t in wdf.index],
@@ -310,15 +323,18 @@ def run_condition(st, wy, design, cond, wcfg):
                 heat_setpoint_f=float(c2f(b.heat_setpoint_c)), cool_setpoint_f=float(c2f(b.cool_setpoint_c)))
 
 
-def design_summary(st, design, peak_kw):
+def design_summary(st, design, peak_kw, propane_worst_gpd=0.0):
     inv = design.get("inverter_kw") or max(3.0, float(np.ceil(peak_kw * 1.15)))
+    lp = st.propane
+    cyl = max(0.0, float(np.ceil(propane_worst_gpd * st.constraints.propane_days_onboard / lp.gal_per_cylinder - 1e-9)))
     wb = weight_breakdown(st, design["pv_kw"], design["bat_kwh"], design["gen_kw"], design["hp_kw"],
-                          design["tank_gal"] * L_PER_GAL, inv)
+                          design["tank_gal"] * L_PER_GAL, inv, design["ph_kbtu"], cyl)
     wb = {k: float(np.asarray(v)) / KG_PER_LB for k, v in wb.items()}
     e = st.econ
     capex = (design["pv_kw"] * e.pv_usd_per_kw + design["bat_kwh"] * e.battery_usd_per_kwh + inv * e.inverter_usd_per_kw
              + (e.gen_usd_fixed + e.gen_usd_per_kw * design["gen_kw"] + e.tank_usd_per_l * design["tank_gal"] * L_PER_GAL
-                if design["gen_kw"] > 0 else 0) + design["hp_kw"] * e.hp_usd_per_kw)
+                if design["gen_kw"] > 0 else 0) + design["hp_kw"] / st.hp.unit_kw * st.hp.unit_cost_usd
+             + (lp.usd_fixed + lp.usd_per_kbtu * design["ph_kbtu"] if design["ph_kbtu"] > 0 else 0) + cyl * lp.cylinder_usd)
     tp = st.building.thermal_params()
     return dict(design=dict(design, inverter_kw=inv, hp_units=design["hp_kw"] / st.hp.unit_kw),
                 weight_lb=wb, payload_lb=sum(wb.values()), payload_limit_lb=st.constraints.max_payload_kg / KG_PER_LB,
@@ -330,14 +346,19 @@ def design_summary(st, design, peak_kw):
                 battery=dict(soc_min=st.battery.soc_min * 100, c_rate=st.battery.c_rate),
                 generator=dict(fuel=st.generator.fuel, soc_start=st.generator.soc_start * 100,
                                soc_stop=st.generator.soc_stop * 100, min_load=st.generator.min_load_frac * 100),
-                pv=dict(tilt=st.pv.tilt_deg), hp=dict(unit_kw=st.hp.unit_kw))
+                pv=dict(tilt=st.pv.tilt_deg), hp=dict(unit_kw=st.hp.unit_kw, label=st.hp.label),
+                propane=dict(label=st.propane.label, efficiency=st.propane.efficiency, cylinders=cyl,
+                             days_onboard=st.constraints.propane_days_onboard, onboard_gal=cyl * lp.gal_per_cylinder))
 
 
 def run_week(cfg: dict, out_dir="week_results", conditions=None, design_overrides=None, verbose=True) -> dict:
     log = print if verbose else (lambda *a, **k: None)
     cfg = copy.deepcopy(cfg or {})
     if design_overrides:
-        cfg.setdefault("design", {}).update({k: v for k, v in design_overrides.items() if v is not None})
+        ov = {k: v for k, v in design_overrides.items() if v is not None}
+        if "hp_kw" in ov:
+            cfg.setdefault("design", {}).pop("hp_units", None)
+        cfg.setdefault("design", {}).update(ov)
     st = study_from_config(cfg)
     wy = load_weather(cfg)
     design = resolve_design(cfg, st)
@@ -350,18 +371,20 @@ def run_week(cfg: dict, out_dir="week_results", conditions=None, design_override
     out.mkdir(parents=True, exist_ok=True)
     log(f"Weather: {wy.source}")
     log(f"Design: PV {design['pv_kw']:g} kW | battery {design['bat_kwh']:g} kWh | generator {design['gen_kw']:g} kW "
-        f"({design['tank_gal']:.0f} gal) | heat pumps {design['hp_kw']:g} kW")
+        f"({design['tank_gal']:.0f} gal) | heat/cool {design['hp_kw'] / st.hp.unit_kw:.0f} units | propane heaters "
+        f"{design['ph_kbtu']:.0f} kBtu/h")
     runs = []
     for c in conds:
         rc = run_condition(st, wy, design, c, wcfg)
         t = rc["totals"]
         log(f"  {rc['title']:20s} {rc['start']}  fuel {t['fuel_gal']:5.1f} gal | gen {t['gen_hours']:4.0f} h "
-            f"{t['gen_starts']:3d} starts | indoor {t['t_min']:.1f}-{t['t_max']:.1f} F | unserved {t['unmet']:.1f} kWh"
+            f"{t['gen_starts']:3d} starts | propane {t['propane_gal']:5.1f} gal | indoor {t['t_min']:.1f}-{t['t_max']:.1f} F | unserved {t['unmet']:.1f} kWh"
             f" | balance err {t['balance_err']:.1e}")
         runs.append(rc)
         pd.DataFrame({"time": rc["time"], **rc["series"]}).to_csv(out / f"week_{c}_hourly.csv", index=False)
     peak = max(r["totals"]["peak_load"] for r in runs)
-    summ = design_summary(st, design, peak)
+    lp_worst = max(r["totals"]["propane_worst_3d"] / 3 for r in runs)
+    summ = design_summary(st, design, peak, lp_worst)
     payload = dict(site=wy.site, source=wy.source, conditions=runs, order=[r["key"] for r in runs], **summ)
     (out / "week_results.json").write_text(json.dumps(payload, default=float))
     from .hmi import write_hmi

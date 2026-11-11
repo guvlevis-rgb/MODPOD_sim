@@ -9,13 +9,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .models import ENVELOPE_PRESETS
+from .models import ENVELOPE_PRESETS, KW_PER_KBTUH, apply_hp_preset, apply_ph_preset
 from .optimize import binding_constraint, Study, WEIGHT_KEYS, weight_breakdown, SweepSpace, evaluate, make_scenarios, optimize, pareto_front
 from .simulate import Scenario, build_scenario, simulate, window_solar_gains
 from .models import occupant_gains_kw
 from .weather import DesignWindow, WeatherYear, load_csv, load_epw, select_design_windows, synthesize_waitsfield
 
-SECTIONS = ("building", "loads", "pv", "hp", "battery", "generator", "ev", "econ", "weights", "constraints", "space")
+SECTIONS = ("building", "loads", "pv", "hp", "propane", "battery", "generator", "ev", "econ", "weights", "constraints",
+            "space")
 
 
 # ---------------------------------------------------------------------------
@@ -27,7 +28,13 @@ def study_from_config(cfg: dict | None) -> Study:
         if sec not in SECTIONS:
             continue
         obj = getattr(st, sec)
+        if sec == "hp" and "model" in vals:
+            apply_hp_preset(obj, vals["model"])
+        if sec == "propane" and "model" in vals:
+            apply_ph_preset(obj, vals["model"])
         for k, v in vals.items():
+            if k == "model":
+                continue
             if not hasattr(obj, k):
                 close = [n for n in vars(obj) if k.lower()[:5] in n.lower()]
                 raise ValueError(f'unknown setting "{sec}.{k}"' + (f". Did you mean {close}?" if close else
@@ -76,10 +83,12 @@ def annual_readiness(st: Study, wy: WeatherYear, design: pd.Series, days: int = 
                   0.5 * internal + sol[idx], summer=t_out.mean(0) > 15.0)
     hp_kw = design.hp_units * st.hp.unit_kw
     r = simulate(sc, np.full(N, design.pv_kw), np.full(N, design.bat_kwh), np.full(N, design.gen_kw),
-                 np.full(N, hp_kw), st.building, st.hp, st.battery, st.generator, st.ev, tank_l=design.tank_l)
+                 np.full(N, hp_kw), st.building, st.hp, st.battery, st.generator, st.ev, tank_l=design.tank_l,
+                 ph_kw=design.get("ph_kbtu", 0.0) * KW_PER_KBTUH, ph=st.propane)
     return pd.DataFrame({
         "start": df.index[starts], "t_out_mean": t_out.mean(0), "t_out_min": t_out.min(0),
-        "fuel_l_per_day": r["fuel_l"] / days, "t_in_min": r["t_min"], "t_in_max": r["t_max"],
+        "fuel_l_per_day": r["fuel_l"] / days, "propane_gal_per_day": r["propane_gal"] / days,
+        "t_in_min": r["t_min"], "t_in_max": r["t_max"],
         "unmet_kwh": r["unmet"], "pv_kwh_per_day": r["pv_used"] / days, "demand_kwh_per_day": r["demand"] / days,
         "renew_frac": 1 - (r["gen_kwh"] - r["dump"]) / np.maximum(r["served"], 1e-9),
         "cold_dh": r["cold_dh"], "hot_dh": r["hot_dh"], "unmet_crit_kwh": r["unmet_crit"],
@@ -99,7 +108,8 @@ def dispatch_series(st: Study, scenarios, design: pd.Series) -> dict:
     hp_kw = design.hp_units * st.hp.unit_kw
     for sc in scenarios:
         r = simulate(sc, [design.pv_kw], [design.bat_kwh], [design.gen_kw], [hp_kw], st.building, st.hp,
-                     st.battery, st.generator, st.ev, record=True, tank_l=design.tank_l)
+                     st.battery, st.generator, st.ev, record=True, tank_l=design.tank_l,
+                     ph_kw=design.get("ph_kbtu", 0.0) * KW_PER_KBTUH, ph=st.propane)
         s = {k: v[:, 0] for k, v in r["series"].items()}
         s["t_out"] = np.asarray(sc.t_out, float)
         s["time"] = sc.index
@@ -130,6 +140,9 @@ def default_cases():
         ("Heat-recovery ventilator (70 %)", lambda s: setattr(s.building, "hrv_effectiveness", 0.7)),
         ("Hold 60 F instead of 55 F", lambda s: setattr(s.building, "heat_setpoint_c", 15.6)),
         ("EV pickup supplies 60 kWh", lambda s: setattr(s.ev, "available_kwh", 60.0)),
+        ("Cold-climate mini-splits instead of portable units", lambda s: apply_hp_preset(s.hp, "cold_climate_12k")),
+        ("Propane heats first below 32 F", lambda s: setattr(s.propane, "lead_below_c", 0.0)),
+        ("Direct-fired (unvented) propane heaters", lambda s: apply_ph_preset(s.propane, "direct")),
         ("Propane generator", lambda s: (setattr(s.generator, "fuel", "propane"),
                                          setattr(s.econ, "fuel_usd_per_l", 0.75))),
         ("PV net-metered when parked", lambda s: setattr(s.econ, "idle_pv_usd_per_kwh", 0.19)),
@@ -155,8 +168,8 @@ def gen_battery_options(st: Study, scs, best: pd.Series, gens=None, bats=None) -
     """
     gens = sorted(set(gens or GEN_OPTIONS) | {float(best.gen_kw)})
     bats = sorted(set(bats or BAT_OPTIONS) | {float(best.bat_kwh)})
-    rows = [(best.pv_kw, b, g, best.hp_units, best.tank_l if g > 0 else 0.0) for g in gens for b in bats]
-    d = pd.DataFrame(rows, columns=["pv_kw", "bat_kwh", "gen_kw", "hp_units", "tank_l"]).astype(float)
+    rows = [(best.pv_kw, b, g, best.hp_units, best.tank_l if g > 0 else 0.0, best.ph_kbtu) for g in gens for b in bats]
+    d = pd.DataFrame(rows, columns=["pv_kw", "bat_kwh", "gen_kw", "hp_units", "tank_l", "ph_kbtu"]).astype(float)
     r = evaluate(st, scs, d)
     short = [sc for sc in scs if sc.hours <= 72]
     for sc in scs:
@@ -199,6 +212,42 @@ def window_study(st: Study, wy, windows, days=3, types=("single_pane", "double_c
     return pd.DataFrame(rows)
 
 
+def fuel_requirements(st: Study, scs, best: pd.Series) -> pd.DataFrame:
+    """Diesel and propane the recommended design burns, per design window and for longer stays.
+
+    Uses unlimited fuel so the figures are the full requirement, not what one tank happens to hold.
+    """
+    lp = st.propane
+    rows = []
+    hp_kw = best.hp_units * st.hp.unit_kw
+    by = {}
+    for sc in scs:
+        r = simulate(sc, [best.pv_kw], [best.bat_kwh], [best.gen_kw], [hp_kw], st.building, st.hp, st.battery,
+                     st.generator, st.ev, tank_l=1e7, ph_kw=best.get("ph_kbtu", 0.0) * KW_PER_KBTUH, ph=lp)
+        days = sc.hours / 24
+        by[sc.key] = (float(r["fuel_l"][0]) / 3.78541, float(r["propane_gal"][0]), days)
+        rows.append(dict(period=f"{sc.label} ({days:.0f} days)", key=sc.key, days=days,
+                         diesel_gal=by[sc.key][0], propane_gal=by[sc.key][1],
+                         diesel_gal_per_day=by[sc.key][0] / days, propane_gal_per_day=by[sc.key][1] / days,
+                         heat_pump_heat_kwh=float(r["heat_kwh"][0]), propane_heat_kwh=float(r["ph_heat_kwh"][0])))
+    short = {k: v for k, v in by.items() if v[2] <= 3}
+    if short:
+        wd = max(v[0] / v[2] for v in short.values())
+        wp = max(v[1] / v[2] for v in short.values())
+        for n in (3, 7):
+            rows.append(dict(period=f"{n} days at the worst 3-day rate", key=f"worst_{n}d", days=n,
+                             diesel_gal=wd * n, propane_gal=wp * n, diesel_gal_per_day=wd, propane_gal_per_day=wp))
+    if "endurance" in by:
+        d_, p_, n = by["endurance"]
+        rows.append(dict(period=f"Worst {n:.0f}-day winter stretch, total", key="endurance_total", days=n,
+                         diesel_gal=d_, propane_gal=p_, diesel_gal_per_day=d_ / n, propane_gal_per_day=p_ / n))
+    df = pd.DataFrame(rows)
+    df["propane_cylinders"] = np.ceil(df.propane_gal / lp.gal_per_cylinder - 1e-9).clip(lower=0) + 0.0
+    df["propane_lb"] = df.propane_gal * lp.kg_per_gal / 0.453592
+    df["diesel_tanks"] = np.where(best.tank_l > 0, df.diesel_gal / (best.tank_l / 3.78541), np.nan)
+    return df
+
+
 def _summ(label, best, st, res):
     n_feas, n_tot = int(res.feasible.sum()), len(res)
     if best is None:
@@ -213,6 +262,10 @@ def _summ(label, best, st, res):
                 autonomy_days=best.get("autonomy_d_endurance", np.nan),
                 fuel_need_14d_l=best.get("fuel_need_l_endurance", np.nan),
                 run_h_day_cold=best.get("gen_h_cold_snap", np.nan) / 3.0,
+                ph_kbtu=best.get("ph_kbtu", 0.0), propane_gal_per_day=best.get("exp_propane_gal_per_day", 0.0),
+                propane_worst_gpd=best.get("propane_worst_gpd", 0.0),
+                propane_need_14d_gal=best.get("propane_need_gal_endurance", np.nan),
+                propane_cylinders=best.get("propane_cylinders", 0.0),
                 n_feasible=n_feas, n_designs=n_tot, envelope=st.building.envelope, occupants=st.building.occupants)
 
 
@@ -278,12 +331,20 @@ def run(cfg: dict | None = None, out_dir: str | Path = "results", sensitivity: b
         log("No feasible design in the sweep space. Widen SweepSpace or relax constraints.")
         log(res.fail_reason.value_counts().head().to_string())
         return results
+    log(f"  OPTIMUM  propane heaters {best.ph_kbtu:.0f} kBtu/h | {int(best.hp_units)} x {st.hp.label}")
     log(f"  OPTIMUM  PV {best.pv_kw:.1f} kW | battery {best.bat_kwh:.0f} kWh | generator {best.gen_kw:.1f} kW "
         f"({best.tank_l:.0f} L tank) | heat pumps {best.hp_kw:.1f} kW ({int(best.hp_units)} x {st.hp.unit_kw} kW)")
     log(f"           capex ${best.capex_usd:,.0f} | lifecycle ${best.lifecycle_usd:,.0f} | "
         f"payload {best.weight_kg:,.0f} kg | autonomy {best.autonomy_d_endurance:.1f} d")
 
     results["dispatch"] = dispatch_series(st, scs, best)
+    fuel = fuel_requirements(st, scs, best)
+    results["fuel"] = fuel
+    fuel.to_csv(out / "fuel_requirements.csv", index=False)
+    log("Fuel needed by the recommended design:")
+    for _, fr in fuel.iterrows():
+        log(f"  {fr.period:34s} diesel {fr.diesel_gal:6.1f} gal | propane {fr.propane_gal:6.1f} gal"
+            f" ({fr.propane_cylinders:.0f} x 100-lb cylinders)")
     results["annual"] = ann
     ann.to_csv(out / "annual_readiness.csv", index=False)
     results["pareto_cost_fuel"] = pareto_front(res, "capex_usd", "exp_fuel_l_per_day")

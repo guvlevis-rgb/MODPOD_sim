@@ -260,20 +260,34 @@ def occupant_gains_kw(hours: np.ndarray, occupants: int) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Air-source heat pump (cold-climate, inverter driven)
+# Heat pumps (presets) and propane heaters
 # ---------------------------------------------------------------------------
+KW_PER_KBTUH = 0.29307107
+PROPANE_KWH_PER_GAL = 91_500 / 3412.14   # 26.8 kWh of fuel energy per US gallon (HHV)
+
+
 @dataclass
 class HeatPump:
-    unit_kw: float = 3.5                  # one ~12 kBtu/h cold-climate head (rated max heat at 47 F)
-    cutoff_c: float = -32.0               # below this the outdoor unit stops
-    # performance map at maximum capacity, vs outdoor dry bulb
-    heat_t: tuple = (-32, -25, -15, -8.3, 0.0, 8.3, 15.0)
-    heat_cap_frac: tuple = (0.45, 0.60, 0.76, 0.86, 0.94, 1.00, 1.00)
-    heat_cop: tuple = (1.25, 1.50, 1.90, 2.25, 2.70, 3.30, 3.90)
+    """Heat/cool units, sized in whole units of `unit_kw` rated heating capacity.
+
+    Default: 14,000 Btu/h (ASHRAE cooling) dual-hose portable heat/cool unit, modelled on the
+    Friedrich ZoneAire ZHP14DB: about 9,500 Btu/h of heat-pump heat, ~8,300 Btu/h of cooling (DOE SACC),
+    1,360 W maximum draw, 64 lb, listed minimum operating temperature 44 F. Portable units take outdoor air
+    through hoses, so the heat pump is assumed to stop heating below 44 F outdoors.
+    """
+    model: str = "portable_14k"
+    label: str = "14,000 Btu/h portable heat/cool unit"
+    unit_kw: float = 2.78                 # heat-pump heating capacity per unit at ~47 F (9,500 Btu/h)
+    unit_cost_usd: float = 640.0
+    unit_weight_kg: float = 29.1          # 64 lb
+    cutoff_c: float = 6.7                 # 44 F: no heat-pump heating below this outdoor temperature
+    heat_t: tuple = (6.7, 8.3, 15.0, 21.0)
+    heat_cap_frac: tuple = (0.85, 1.00, 1.00, 1.00)
+    heat_cop: tuple = (1.8, 2.0, 2.3, 2.5)
     cool_t: tuple = (20.0, 27.0, 35.0, 40.0, 46.0)
-    cool_cap_frac: tuple = (0.95, 0.92, 0.85, 0.80, 0.70)   # of rated heating capacity
-    cool_cop: tuple = (5.0, 4.3, 3.3, 2.8, 2.2)
-    part_load_bonus: float = 0.15         # COP gain at low part-load for inverter compressors
+    cool_cap_frac: tuple = (1.00, 0.95, 0.875, 0.80, 0.70)   # of unit_kw: 2.43 kW (8,300 Btu/h) at 95 F
+    cool_cop: tuple = (3.0, 2.6, 2.2, 1.9, 1.6)
+    part_load_bonus: float = 0.0          # single-speed portable units cycle on/off
 
     def heat_perf(self, t_out):
         cap = np.interp(t_out, self.heat_t, self.heat_cap_frac)
@@ -283,6 +297,74 @@ class HeatPump:
 
     def cool_perf(self, t_out):
         return np.interp(t_out, self.cool_t, self.cool_cap_frac), np.interp(t_out, self.cool_t, self.cool_cop)
+
+
+HP_PRESETS = {
+    "portable_14k": {},   # the dataclass defaults
+    "cold_climate_12k": dict(
+        label="12,000 Btu/h cold-climate mini-split head", unit_kw=3.5, unit_cost_usd=3150.0, unit_weight_kg=77.0,
+        cutoff_c=-32.0, heat_t=(-32, -25, -15, -8.3, 0.0, 8.3, 15.0),
+        heat_cap_frac=(0.45, 0.60, 0.76, 0.86, 0.94, 1.00, 1.00), heat_cop=(1.25, 1.50, 1.90, 2.25, 2.70, 3.30, 3.90),
+        cool_t=(20.0, 27.0, 35.0, 40.0, 46.0), cool_cap_frac=(0.95, 0.92, 0.85, 0.80, 0.70),
+        cool_cop=(5.0, 4.3, 3.3, 2.8, 2.2), part_load_bonus=0.15),
+}
+
+
+def apply_hp_preset(hp: "HeatPump", name: str) -> "HeatPump":
+    if name not in HP_PRESETS:
+        raise ValueError(f'hp.model = "{name}" is not a heat-pump preset. Use one of: {", ".join(HP_PRESETS)}')
+    base = HeatPump()
+    for k, v in {**{f: getattr(base, f) for f in base.__dataclass_fields__}, **HP_PRESETS[name]}.items():
+        setattr(hp, k, v)
+    hp.model = name
+    return hp
+
+
+@dataclass
+class PropaneHeater:
+    """Portable propane space heaters, sized as total output in kBtu/h (swept in 50 kBtu/h steps).
+
+    indirect (default): vented / indirect-fired heaters whose combustion products leave through a flue, the
+    type suited to an occupied shelter. Heavy (a 200,000 Btu/h unit is ~400 lb, 120 V / 15 A).
+    direct: unvented forced-air "torpedo" heaters (e.g. Mi-T-M MH-0150: 150,000 Btu/h, 23 lb, 6.9 lb/h of
+    propane). Light and cheap, but labelled not for residential living areas or poorly ventilated spaces.
+    """
+    model: str = "indirect"
+    label: str = "Indirect-fired (vented) propane heater"
+    efficiency: float = 0.80              # share of the fuel's heat delivered into the shelter
+    fan_w_per_kbtu: float = 6.0           # electric draw at full output (blower, burner controls)
+    usd_fixed: float = 1500.0
+    usd_per_kbtu: float = 25.0
+    kg_fixed: float = 30.0
+    kg_per_kbtu: float = 0.85
+    lead_below_c: float | None = None     # None: heat pumps heat first, propane tops up. A temperature:
+                                          # below it propane heats first and heat pumps top up
+    gal_per_cylinder: float = 23.6        # 100-lb DOT cylinder
+    cylinder_tare_kg: float = 31.0        # ~68 lb empty
+    cylinder_usd: float = 200.0
+    kg_per_gal: float = 1.923             # 4.24 lb/gal
+    co2_kg_per_gal: float = 5.74
+
+    @property
+    def fan_kw_per_kw(self):
+        return self.fan_w_per_kbtu / 1000.0 / KW_PER_KBTUH
+
+
+PH_PRESETS = {
+    "indirect": {},
+    "direct": dict(label="Direct-fired forced-air propane heater (unvented)", efficiency=1.0, fan_w_per_kbtu=1.0,
+                   usd_fixed=100.0, usd_per_kbtu=3.0, kg_fixed=3.0, kg_per_kbtu=0.07),
+}
+
+
+def apply_ph_preset(ph: "PropaneHeater", name: str) -> "PropaneHeater":
+    if name not in PH_PRESETS:
+        raise ValueError(f'propane.model = "{name}" is not a propane-heater preset. Use one of: {", ".join(PH_PRESETS)}')
+    base = PropaneHeater()
+    for k, v in {**{f: getattr(base, f) for f in base.__dataclass_fields__}, **PH_PRESETS[name]}.items():
+        setattr(ph, k, v)
+    ph.model = name
+    return ph
 
 
 # ---------------------------------------------------------------------------
@@ -386,9 +468,9 @@ class Economics:
     inverter_usd_per_kw: float = 350.0   # hybrid inverter/charger, sized to peak load
     gen_usd_fixed: float = 3000.0
     gen_usd_per_kw: float = 450.0
-    hp_usd_per_kw: float = 900.0         # ccASHP heads + line sets, per kW heating capacity
     tank_usd_per_l: float = 4.0          # double-wall fuel tank + transfer pump
-    fuel_usd_per_l: float = 1.15         # diesel ~$4.35/gal (propane ~ $0.75/L)
+    fuel_usd_per_l: float = 1.15         # generator fuel: diesel ~$4.35/gal
+    propane_usd_per_gal: float = 2.85    # heater fuel (delivered, 100-lb cylinder refills cost more)
     gen_om_usd_per_hour: float = 0.60
     carbon_usd_per_t: float = 190.0      # social cost of CO2 (EPA 2023 central, 2020$); 0 to ignore
     idle_pv_usd_per_kwh: float = 0.0     # value of PV energy when the pod is parked (e.g. net-metered at
@@ -412,7 +494,6 @@ class Weights:
     inverter_kg_per_kw: float = 8.0
     gen_kg_fixed: float = 180.0
     gen_kg_per_kw: float = 28.0
-    hp_kg_per_kw: float = 22.0
     tank_kg_per_l: float = 0.12          # empty tank mass per liter of capacity (fuel mass added separately)
     fixed_payload_kg: float = 700.0      # comms, water, food service, fit-out
 
@@ -426,4 +507,5 @@ class Constraints:
     max_hot_degree_hours: float = 2.0
     require_endurance: bool = False      # if True the multi-week window must also be fully served
     min_autonomy_days: float = 0.0       # days the worst multi-week stretch must be carried on one tank
+    propane_days_onboard: float = 3.0    # propane cylinders carried for this many days of the worst window
     objective: str = "lifecycle"         # lifecycle | capex | weight

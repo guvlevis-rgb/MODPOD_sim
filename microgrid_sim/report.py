@@ -66,7 +66,8 @@ def build_payload(res: dict) -> dict:
                    unmet=mt["unmet"], demand=mt["demand"], pv=mt["pv_used"], t_min=float(c2f(mt["t_min"])),
                    t_max=float(c2f(mt["t_max"])), heat=mt["heat_kwh"], cool=mt["cool_kwh"],
                    hvac=mt["hvac_kwh"], autonomy=mt["autonomy_h"] / 24, soc_end=mt["soc_end"] * 100,
-                   fuel_left_gal=mt["fuel_left_l"] / L_PER_GAL, curtail=mt["curtail"]))
+                   fuel_left_gal=mt["fuel_left_l"] / L_PER_GAL, curtail=mt["curtail"],
+                   propane_gal=mt.get("propane_gal", 0.0), ph_heat=mt.get("ph_heat_kwh", 0.0)))
 
     # sweep (subsample infeasible for the scatter)
     feas = sweep[sweep.feasible]
@@ -133,7 +134,17 @@ def build_payload(res: dict) -> dict:
         ("Envelope UA", f"{tp['ua_total']:.0f} W/K ({tp['ua_total'] * 1.8956:,.0f} Btu/h-F) incl. ventilation"),
         ("Thermostat", f"heat to {c2f(b.heat_setpoint_c):.0f} F, cool to {c2f(b.cool_setpoint_c):.0f} F; "
                        f"limits {c2f(b.min_indoor_c):.0f}-{c2f(b.max_indoor_c):.0f} F"),
-        ("Heat pumps", f"cold-climate, {st.hp.unit_kw} kW per head at 47 F; cutoff {c2f(st.hp.cutoff_c):.0f} F"),
+        ("Heat pumps", f"{st.hp.label}: {st.hp.unit_kw:g} kW ({st.hp.unit_kw * 3412.14:,.0f} Btu/h) of heat per unit; "
+                       f"no heat-pump heating below {c2f(st.hp.cutoff_c):.0f} F; ${st.hp.unit_cost_usd:,.0f} and "
+                       f"{st.hp.unit_weight_kg / KG_PER_LB:.0f} lb per unit"),
+        ("Propane heaters", f"{st.propane.label}, {st.propane.efficiency:.0%} efficient, blower "
+                            f"{st.propane.fan_w_per_kbtu:g} W per kBtu/h; "
+                            + ("heat pumps heat first, propane tops up" if st.propane.lead_below_c is None else
+                               f"propane heats first below {c2f(st.propane.lead_below_c):.0f} F")
+                            + f"; ${st.propane.usd_fixed:,.0f} + ${st.propane.usd_per_kbtu:g}/kBtu/h, "
+                              f"{st.propane.kg_fixed / KG_PER_LB:.0f} lb + {st.propane.kg_per_kbtu / KG_PER_LB:.1f} lb/kBtu/h; "
+                              f"propane for {st.constraints.propane_days_onboard:g} days carried in 100-lb cylinders "
+                              f"(${st.econ.propane_usd_per_gal:.2f}/gal)"),
         ("PV", f"tilt {st.pv.tilt_deg:g} deg, losses {st.pv.system_losses:.0%}, snow model "
                f"{'on' if st.pv.snow_model else 'off'}, staff clear snow at {st.pv.snow_clearing_hour}:00"),
         ("Battery", f"LFP, {st.battery.c_rate}C, {st.battery.eff_oneway ** 2:.0%} round trip, "
@@ -141,7 +152,7 @@ def build_payload(res: dict) -> dict:
         ("Generator", f"{st.generator.fuel}, cycle charging {st.generator.soc_start:.0%}->{st.generator.soc_stop:.0%} SOC, "
                       f"min load {st.generator.min_load_frac:.0%}"),
         ("Costs", f"PV ${econ.pv_usd_per_kw:,.0f}/kW, battery ${econ.battery_usd_per_kwh:,.0f}/kWh, "
-                  f"generator ${econ.gen_usd_fixed:,.0f} + ${econ.gen_usd_per_kw:,.0f}/kW, heat pump ${econ.hp_usd_per_kw:,.0f}/kW"),
+                  f"generator ${econ.gen_usd_fixed:,.0f} + ${econ.gen_usd_per_kw:,.0f}/kW, heat pump ${st.hp.unit_cost_usd:,.0f}/unit"),
         ("Lifecycle", f"{econ.deployment_days_per_year:g} deployment days/yr, {econ.lifetime_years:g} yr, "
                       f"{econ.discount_rate:.0%} discount, fuel ${econ.fuel_usd_per_l * L_PER_GAL:.2f}/gal, "
                       f"carbon ${econ.carbon_usd_per_t:g}/t"),
@@ -159,7 +170,8 @@ def build_payload(res: dict) -> dict:
         weather=dict(date=[str(d.date()) for d in dly.index], tmin=_r(c2f(dly.t_min), 1), tmax=_r(c2f(dly.t_max), 1),
                      tmean=_r(c2f(dly.t_mean), 1), ghi=_r(dly.ghi_kwh, 2)),
         best=_clean({k: best[k] for k in best.index if isinstance(best[k], (int, float, np.floating, np.integer, np.bool_))}),
-        hp_unit_kw=st.hp.unit_kw, dispatch=disp,
+        hp_unit_kw=st.hp.unit_kw, hp_label=st.hp.label, ph_label=st.propane.label, dispatch=disp,
+        fuel=_fuel_rows(res),
         sweep=dict(feas=sc_feas, inf=sc_inf, pareto=dict(capex=_r(pareto.capex_usd), fuel=_r(pareto.exp_fuel_l_per_day)),
                    n=int(len(sweep)), n_feas=int(sweep.feasible.sum()),
                    heat=dict(x=[float(g) for g in gens], y=[float(h) for h in hps], z=z, text=txt, lab=lab),
@@ -237,6 +249,13 @@ def _windows_payload(res):
                                    "fuel_l_per_day", "worst_fuel_l_per_day", "run_h_day_cold", "binding")}
         rows.append(_clean(d))
     return rows
+
+
+def _fuel_rows(res):
+    f = res.get("fuel")
+    if f is None:
+        return []
+    return [_clean({k: (v.item() if hasattr(v, "item") else v) for k, v in r.items()}) for r in f.to_dict("records")]
 
 
 def write_report(res: dict, path, standalone: bool = True) -> str:
@@ -349,7 +368,7 @@ TEMPLATE = r"""<title>MOD POD Microgrid Sizing</title>
   --bg:#f3f5f4; --panel:#ffffff; --ink:#17201d; --ink2:#4b5753; --mute:#7d8884; --rule:#d9dfdc; --grid:#e8ecea;
   --accent:#1f6f5c; --accent-soft:#e1efe9;
   --pv:#eda100; --bat:#2a78d6; --gen:#eb6834; --ev:#1baf7a; --crit:#c8312f; --warn:#b36b00;
-  --band:rgba(42,120,214,.08); --mag:#e87ba4;
+  --band:rgba(42,120,214,.08); --mag:#e87ba4; --heat:#9c3fb0;
   --f-display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
   --f-body:"Source Sans 3",system-ui,-apple-system,"Segoe UI",sans-serif;
   --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
@@ -357,12 +376,12 @@ TEMPLATE = r"""<title>MOD POD Microgrid Sizing</title>
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --bg:#121715; --panel:#1a201e; --ink:#e8eeeb; --ink2:#b4beba; --mute:#86918d; --rule:#2c3532; --grid:#252d2a;
   --accent:#5cc0a2; --accent-soft:#1d3029;
-  --pv:#c98500; --bat:#3987e5; --gen:#d95926; --ev:#199e70; --crit:#ec6a68; --warn:#e0a03a; --band:rgba(57,135,229,.12); --mag:#d55181;
+  --pv:#c98500; --bat:#3987e5; --gen:#d95926; --ev:#199e70; --crit:#ec6a68; --warn:#e0a03a; --band:rgba(57,135,229,.12); --mag:#d55181; --heat:#c27bd6;
   color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#121715; --panel:#1a201e; --ink:#e8eeeb; --ink2:#b4beba; --mute:#86918d; --rule:#2c3532; --grid:#252d2a;
   --accent:#5cc0a2; --accent-soft:#1d3029;
-  --pv:#c98500; --bat:#3987e5; --gen:#d95926; --ev:#199e70; --crit:#ec6a68; --warn:#e0a03a; --band:rgba(57,135,229,.12); --mag:#d55181;
+  --pv:#c98500; --bat:#3987e5; --gen:#d95926; --ev:#199e70; --crit:#ec6a68; --warn:#e0a03a; --band:rgba(57,135,229,.12); --mag:#d55181; --heat:#c27bd6;
   color-scheme:dark}
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--ink);font:16px/1.5 var(--f-body);margin:0}
@@ -441,8 +460,14 @@ footer{margin-top:40px;padding-top:14px;border-top:1px solid var(--rule);font-si
   <div class="panel"><div class="chart tall" id="c_dispatch"></div></div>
 </section>
 
+<section id="fuel">
+  <h2><span class="n">03</span>Fuel needed</h2>
+  <p class="lede" id="fuellede"></p>
+  <div class="tbl"><table id="t_fuel"></table></div>
+</section>
+
 <section id="genbat">
-  <h2><span class="n">03</span>Generator and battery options</h2>
+  <h2><span class="n">04</span>Generator and battery options</h2>
   <p class="lede" id="gblede"></p>
   <div class="tabs" role="tablist" id="gbtabs"></div>
   <div class="grid2">
@@ -458,14 +483,14 @@ footer{margin-top:40px;padding-top:14px;border-top:1px solid var(--rule);font-si
 </section>
 
 <section>
-  <h2><span class="n">04</span>Waitsfield weather year and design windows</h2>
+  <h2><span class="n">05</span>Waitsfield weather year and design windows</h2>
   <p class="lede" id="wxlede"></p>
   <div class="panel"><div class="chart short" id="c_temp"></div></div>
   <div class="panel"><div class="chart short" id="c_ghi"></div></div>
 </section>
 
 <section>
-  <h2><span class="n">05</span>Design sweep</h2>
+  <h2><span class="n">06</span>Design sweep</h2>
   <p class="lede" id="sweeplede"></p>
   <div class="grid2">
     <div class="panel"><h3>Capital cost vs expected fuel use</h3><div class="chart" id="c_scatter"></div></div>
@@ -476,13 +501,13 @@ footer{margin-top:40px;padding-top:14px;border-top:1px solid var(--rule);font-si
 </section>
 
 <section>
-  <h2><span class="n">06</span>Fuel autonomy without resupply</h2>
+  <h2><span class="n">07</span>Fuel autonomy without resupply</h2>
   <p class="lede">Cheapest design that carries the worst multi-week winter stretch for N days on one tank, re-optimized for each target with larger batteries, arrays and tanks allowed. Flood events can cut road access, so this is the resilience ladder behind "ideally up to a few weeks".</p>
   <div class="tbl"><table id="t_ladder"></table></div>
 </section>
 
 <section>
-  <h2><span class="n">07</span>Building, window and occupant sensitivity</h2>
+  <h2><span class="n">08</span>Building, window and occupant sensitivity</h2>
   <p class="lede">Each row changes one input and re-runs the full sweep and optimization, so the sizes shown are the new optimum, not the base design re-checked.</p>
   <div class="tbl"><table id="t_sens"></table></div>
   <div class="grid2">
@@ -499,7 +524,7 @@ footer{margin-top:40px;padding-top:14px;border-top:1px solid var(--rule);font-si
 </section>
 
 <section>
-  <h2><span class="n">08</span>Any-day deployment check</h2>
+  <h2><span class="n">09</span>Any-day deployment check</h2>
   <p class="lede" id="annlede"></p>
   <div class="grid2">
     <div class="panel"><h3>Fuel use by deployment start date (gal/day)</h3><div class="chart short" id="c_annfuel"></div></div>
@@ -508,7 +533,7 @@ footer{margin-top:40px;padding-top:14px;border-top:1px solid var(--rule);font-si
 </section>
 
 <section>
-  <h2><span class="n">09</span>Assumptions</h2>
+  <h2><span class="n">10</span>Assumptions</h2>
   <dl class="assume" id="assume"></dl>
   <p class="note">All parameters are editable in the JSON config passed to <code>python -m microgrid_sim run</code>. Results are screening-level: hourly time step, sensible loads only, rule-based dispatch.</p>
 </section>
@@ -529,13 +554,14 @@ const WS = D.windows_study;
 
 // ---------- static text ----------
 $("site").textContent = `${D.site.name} · ${D.site.lat.toFixed(2)}° N ${Math.abs(D.site.lon).toFixed(2)}° W`;
-$("intro").textContent = `Hybrid PV, battery, diesel generator and cold-climate heat-pump sizing for a towable resilience pod serving a ${fmt(D.building.area_ft2)} ft² shelter with ${D.building.occupants} occupants (${D.building.envelope}). ${fmt(D.sweep.n)} equipment combinations were simulated hour by hour through every design window; ${fmt(D.sweep.n_feas)} met all requirements.`;
+$("intro").textContent = `Hybrid PV, battery, diesel generator, heat/cool unit and propane heater sizing for a towable resilience pod serving a ${fmt(D.building.area_ft2)} ft² shelter with ${D.building.occupants} occupants (${D.building.envelope}). ${fmt(D.sweep.n)} equipment combinations were simulated hour by hour through every design window; ${fmt(D.sweep.n_feas)} met all requirements.`;
 
 const spec = [
   ["PV array", fmt(B.pv_kw,1), "kW", `${fmt(B.pv_kw/0.4)} × 400 W modules`, "--pv"],
   ["Battery", fmt(B.bat_kwh), "kWh", `LFP, usable ${fmt(B.bat_kwh*0.9)} kWh`, "--bat"],
   ["Generator", fmt(B.gen_kw,1), "kW", `${fmt(B.tank_l/G)} gal diesel tank`, "--gen"],
-  ["Heat pumps", fmt(B.hp_kw,1), "kW", `${fmt(B.hp_units)} × ${D.hp_unit_kw} kW cold-climate heads`, "--accent"],
+  ["Propane heaters", fmt(B.ph_kbtu), "kBtu/h", `${fmt(B.ph_kbtu*0.29307,1)} kW of heat · ${fmt(B.propane_cylinders)} × 100-lb cylinders`, "--heat"],
+  ["Heat/cool units", fmt(B.hp_units), "units", `${D.hp_label}, ${fmt(B.hp_kw,1)} kW heat`, "--accent"],
   ["Inverter", fmt(B.inverter_kw), "kW", `peak load ${fmt(B.peak_kw,1)} kW`, "--mute"],
 ];
 $("spec").innerHTML = spec.map(s=>`<div class="cell"><span class="k"><span class="sw" style="background:var(${s[4]})"></span>${s[0]}</span><span class="v">${s[1]}<small>${s[2]}</small></span><span class="d">${s[3]}</span></div>`).join("");
@@ -544,8 +570,9 @@ $("outcomes").innerHTML = [
   [`$${fmt(B.capex_usd/1000,1)}k`, "equipment capital cost"],
   [`$${fmt(B.lifecycle_usd/1000,1)}k`, "15-year lifecycle cost"],
   [`${fmt(B.weight_kg/LB)} lb`, `payload of ${fmt(D.limits.payload_lb)} lb allowed`],
-  [`${fmt(worstFuel/G,1)} gal/day`, "fuel in the worst 3-day window"],
-  [`${fmt(B.autonomy_d_endurance,1)} days`, "on one tank, worst winter stretch"],
+  [`${fmt(worstFuel/G,1)} gal/day`, "diesel in the worst 3-day window"],
+  [`${fmt(B.propane_worst_gpd,1)} gal/day`, "propane in the worst 3-day window"],
+  [`${fmt(B.autonomy_d_endurance,1)} days`, "until the diesel tank runs dry, worst 14-day stretch"],
 ].map(o=>`<div><b>${o[0]}</b><span>${o[1]}</span></div>`).join("");
 
 // findings (generated from results)
@@ -555,16 +582,16 @@ $("outcomes").innerHTML = [
   const cs = disp.cold_snap, sh = disp.summer_heat;
   const ua = D.ua; const tot = ua.w_k.reduce((a,b)=>a+b,0);
   const big = ua.labels.map((l,i)=>[l,ua.w_k[i]]).sort((a,b)=>b[1]-a[1]);
-  if (cs) f.push(`Heating sets the size. In the cold snap the heat pumps draw ${fmt(cs.m.hvac/cs.m.demand*100)}% of all electricity and the generator burns ${fmt(cs.m.fuel_gal/cs.m.days,1)} gal/day; the shelter bottoms out at ${fmt(cs.m.t_min,1)} °F.`);
-  f.push(`${big[0][0]} (${fmt(big[0][1]/tot*100)}%) and ${big[1][0].toLowerCase()} (${fmt(big[1][1]/tot*100)}%) are the largest heat-loss paths. A heat-recovery ventilator or a tighter building shrinks every component; see section 07.`);
-  if (B.pv_kw < 2) f.push(`PV barely enters the optimum. Waitsfield winter windows deliver ${fmt(Math.min(...D.windows.filter(w=>w.days<=3).map(w=>{const i0=D.weather.date.indexOf(w.start);return D.weather.ghi.slice(i0,i0+w.days).reduce((a,b)=>a+b,0)/w.days;})),2)} kWh/m²/day at worst, and with about ${fmt(D.deploy_days)} deployment days a year the fuel saved does not repay the array. PV earns its place when the pod's array is net-metered while parked, or when fuel autonomy matters more than cost.`);
+  if (cs) f.push(`Heating sets the size. In the cold snap the propane heaters supply ${fmt(cs.m.ph_heat/Math.max(cs.m.ph_heat+cs.m.heat,1e-9)*100)}% of the heat, burning ${fmt(cs.m.propane_gal/cs.m.days,1)} gal of propane a day, while the generator burns ${fmt(cs.m.fuel_gal/cs.m.days,1)} gal/day of diesel; the shelter bottoms out at ${fmt(cs.m.t_min,1)} °F.`);
+  f.push(`${big[0][0]} (${fmt(big[0][1]/tot*100)}%) and ${big[1][0].toLowerCase()} (${fmt(big[1][1]/tot*100)}%) are the largest heat-loss paths. A heat-recovery ventilator or a tighter building shrinks every component; see section 08.`);
+  if (B.pv_kw < 2) f.push(`${B.pv_kw<0.05?'PV does not enter the optimum':'PV barely enters the optimum'}. Waitsfield winter windows deliver ${fmt(Math.min(...D.windows.filter(w=>w.days<=3).map(w=>{const i0=D.weather.date.indexOf(w.start);return D.weather.ghi.slice(i0,i0+w.days).reduce((a,b)=>a+b,0)/w.days;})),2)} kWh/m²/day at worst, and with about ${fmt(D.deploy_days)} deployment days a year the fuel saved does not repay the array. PV earns its place when the pod's array is net-metered while parked, or when fuel autonomy matters more than cost.`);
   else f.push(`The optimum carries ${fmt(B.pv_kw,1)} kW of PV, supplying ${fmt(sh? sh.m.pv/sh.m.demand*100:0)}% of summer demand.`);
   if (sh) f.push(`Summer is easy: indoor temperature peaks at ${fmt(sh.m.t_max,1)} °F with ${fmt(sh.m.fuel_gal/sh.m.days,1)} gal/day of fuel.`);
   if (GB && GB.options.length){
     const o=GB.options, bestO=o.find(x=>x.best)||o[0];
     const quiet=[...o].sort((a,b)=>a.run.worst-b.run.worst)[0];
     const light=o[0];
-    f.push(`Generator and battery trade-off: the recommended ${fmt(bestO.gen_kw)} kW generator with ${fmt(bestO.bat_kwh)} kWh battery runs ${fmt(bestO.run.worst,1)} h/day in the worst window at ${fmt(bestO.weight_lb)} lb. Among options that fit the trailer, the lightest (${fmt(light.gen_kw)} kW + ${fmt(light.bat_kwh)} kWh) weighs ${fmt(light.weight_lb)} lb and the quietest (${fmt(quiet.gen_kw)} kW + ${fmt(quiet.bat_kwh)} kWh) runs ${fmt(quiet.run.worst,1)} h/day. Cutting cold-weather run time much further needs a battery too heavy to tow; see section 03.`);
+    f.push(`Generator and battery trade-off: the recommended ${fmt(bestO.gen_kw,bestO.gen_kw%1?1:0)} kW generator with ${fmt(bestO.bat_kwh)} kWh battery runs ${fmt(bestO.run.worst,1)} h/day in the worst window at ${fmt(bestO.weight_lb)} lb. Among options that fit the trailer, the lightest (${fmt(light.gen_kw,light.gen_kw%1?1:0)} kW + ${fmt(light.bat_kwh)} kWh) weighs ${fmt(light.weight_lb)} lb and the quietest (${fmt(quiet.gen_kw,quiet.gen_kw%1?1:0)} kW + ${fmt(quiet.bat_kwh)} kWh) runs ${fmt(quiet.run.worst,1)} h/day. Cutting cold-weather run time much further needs a battery too heavy to tow; see section 04.`);
   }
   if (WS){ const ok=WS.filter(r=>r.feasible); if(ok.length){ const lo=ok.reduce((a,b)=>a.capex_usd<b.capex_usd?a:b), hi=ok.reduce((a,b)=>a.capex_usd>b.capex_usd?a:b);
     f.push(`Windows matter: across the window cases that can be served, the re-optimized pod ranges from $${fmt(lo.capex_usd/1000,1)}k (${lo.window_count} × ${lo.window_name.toLowerCase()}) to $${fmt(hi.capex_usd/1000,1)}k (${hi.window_count} × ${hi.window_name.toLowerCase()}).`); } }
@@ -600,7 +627,7 @@ function drawDispatch(){
   const d = D.dispatch[wsel], w = D.windows.find(x=>x.key===wsel), m=d.m;
   $("wdesc").textContent = w ? `${w.desc}. ${w.start} to ${w.end}.` : "";
   $("wmetrics").innerHTML = [
-    ["Fuel", `${fmt(m.fuel_gal,1)} gal`], ["Generator", `${fmt(m.gen_h)} h, ${fmt(m.starts)} starts`],
+    ["Diesel", `${fmt(m.fuel_gal,1)} gal`], ["Propane", `${fmt(m.propane_gal,1)} gal`], ["Generator", `${fmt(m.gen_h)} h, ${fmt(m.starts)} starts`],
     ["PV used", `${fmt(m.pv)} kWh`], ["Demand", `${fmt(m.demand)} kWh`], ["Indoor", `${fmt(m.t_min,1)}–${fmt(m.t_max,1)} °F`],
     ["Unserved", `${fmt(m.unmet,1)} kWh`], ["Fuel left", `${fmt(m.fuel_left_gal)} gal`], ["Load carried", `${fmt(m.autonomy,1)} of ${fmt(m.days)} days`]
   ].map(x=>`<span>${x[0]} <b>${x[1]}</b></span>`).join("");
@@ -660,7 +687,7 @@ function drawWeather(){
 // ---------- 04 sweep ----------
 function drawSweep(){
   const s=D.sweep;
-  $("sweeplede").textContent = `Coarse full-factorial sweep plus a refinement around the best designs at purchasable increments (2-module PV steps, 5 kWh battery modules, catalog generators, whole heat-pump heads, 50/100/150 gal tanks). ${fmt(s.n)} designs, ${fmt(s.n_feas)} feasible. The optimum minimizes 15-year lifecycle cost (equipment + discounted fuel, maintenance and carbon).`;
+  $("sweeplede").textContent = `Coarse full-factorial sweep plus a refinement around the best designs at purchasable increments (2-module PV steps, 5 kWh battery modules, catalog generators, whole heat/cool units, propane heaters in 50 kBtu/h steps, 50/100 gal tanks). ${fmt(s.n)} designs, ${fmt(s.n_feas)} feasible. The optimum minimizes 15-year lifecycle cost (equipment + discounted fuel, maintenance and carbon).`;
   let L = baseLayout({hovermode:"closest"});
   L.xaxis = Object.assign({},L._ax,{title:{text:"Capital cost ($k)",font:{color:css("--ink2"),size:12}}});
   L.yaxis = Object.assign({},L._ax,{title:{text:"Expected fuel (gal/day)",font:{color:css("--ink2"),size:12}}});
@@ -697,11 +724,21 @@ function drawSweep(){
 }
 
 // ---------- 05 / 06 tables ----------
+function fuelTable(){
+  const F = D.fuel || []; if(!F.length){ $("fuel").hidden = true; return; }
+  const e = F.find(r=>r.key==="endurance_total"), w3 = F.find(r=>r.key==="worst_3d");
+  $("fuellede").textContent = `Diesel for the generator and propane for the heaters that the recommended design burns, with unlimited fuel so the figures are the full requirement. The pod carries propane for ${fmt(w3?w3.days:3)} days of the worst window (${fmt(B.propane_cylinders)} × 100-lb cylinders, ${fmt(B.propane_onboard_gal,1)} gal) and a ${fmt(B.tank_l/G)} gal diesel tank.` + (e ? ` The worst ${fmt(e.days)}-day winter stretch needs ${fmt(e.diesel_gal)} gal of diesel and ${fmt(e.propane_gal)} gal of propane (${fmt(e.propane_cylinders)} cylinders).` : "");
+  const head = `<tr><th>Period</th><th>Days</th><th>Diesel gal</th><th>Diesel gal/day</th><th>Diesel tanks</th><th>Propane gal</th><th>Propane gal/day</th><th>Propane lb</th><th>100-lb cylinders</th></tr>`;
+  const body = F.map(r=>`<tr class="${r.key==="worst_3d"?"base":""}"><td>${r.period}</td><td>${fmt(r.days)}</td><td>${fmt(r.diesel_gal,1)}</td><td>${fmt(r.diesel_gal_per_day,1)}</td><td>${fmt(r.diesel_tanks,1)}</td><td>${fmt(r.propane_gal,1)}</td><td>${fmt(r.propane_gal_per_day,1)}</td><td>${fmt(r.propane_lb)}</td><td>${fmt(r.propane_cylinders)}</td></tr>`).join("");
+  $("t_fuel").innerHTML = `<thead>${head}</thead><tbody>${body}</tbody>`;
+}
+fuelTable();
+
 function caseTable(id, rows, first){
-  const head = `<tr><th>${first}</th><th>PV kW</th><th>Battery kWh</th><th>Generator kW</th><th>Tank gal</th><th>Heat pumps kW</th><th>Capex</th><th>Lifecycle</th><th>Payload lb</th><th>Fuel gal/day</th><th>Autonomy days</th><th>14-day fuel gal</th></tr>`;
+  const head = `<tr><th>${first}</th><th>PV kW</th><th>Battery kWh</th><th>Generator kW</th><th>Tank gal</th><th>Heat/cool units</th><th>Propane kBtu/h</th><th>Capex</th><th>Lifecycle</th><th>Payload lb</th><th>Diesel gal/day</th><th>Propane gal/day</th><th>Autonomy days</th><th>14-day diesel gal</th><th>14-day propane gal</th></tr>`;
   const body = rows.map((r,i)=> r.feasible
-    ? `<tr class="${i===0&&id==="t_sens"?"base":""}"><td>${r.case}</td><td>${fmt(r.pv_kw,1)}</td><td>${fmt(r.bat_kwh)}</td><td>${fmt(r.gen_kw,1)}</td><td>${fmt(r.tank_l/G)}</td><td>${fmt(r.hp_kw,1)}</td><td>$${fmt(r.capex_usd/1000,1)}k</td><td>$${fmt(r.lifecycle_usd/1000,1)}k</td><td>${fmt(r.weight_kg/LB)}</td><td>${fmt(r.fuel_l_per_day/G,1)}</td><td>${fmt(r.autonomy_days,1)}</td><td>${fmt(r.fuel_need_14d_l/G)}</td></tr>`
-    : `<tr><td>${r.case}</td><td class="no" colspan="11"><span class="pill bad">no feasible design</span> binding limit: ${r.binding||"–"}${r.max_autonomy_days!=null?` · best achievable ${fmt(r.max_autonomy_days,1)} days`:""}</td></tr>`).join("");
+    ? `<tr class="${i===0&&id==="t_sens"?"base":""}"><td>${r.case}</td><td>${fmt(r.pv_kw,1)}</td><td>${fmt(r.bat_kwh)}</td><td>${fmt(r.gen_kw,1)}</td><td>${fmt(r.tank_l/G)}</td><td>${fmt(r.hp_units)}</td><td>${fmt(r.ph_kbtu)}</td><td>$${fmt(r.capex_usd/1000,1)}k</td><td>$${fmt(r.lifecycle_usd/1000,1)}k</td><td>${fmt(r.weight_kg/LB)}</td><td>${fmt(r.fuel_l_per_day/G,1)}</td><td>${fmt(r.propane_gal_per_day,1)}</td><td>${fmt(r.autonomy_days,1)}</td><td>${fmt(r.fuel_need_14d_l/G)}</td><td>${fmt(r.propane_need_14d_gal)}</td></tr>`
+    : `<tr><td>${r.case}</td><td class="no" colspan="14"><span class="pill bad">no feasible design</span> binding limit: ${r.binding||"–"}${r.max_autonomy_days!=null?` · best achievable ${fmt(r.max_autonomy_days,1)} days`:""}</td></tr>`).join("");
   $(id).innerHTML = `<thead>${head}</thead><tbody>${body}</tbody>`;
 }
 caseTable("t_ladder", D.ladder.map(r=>Object.assign({},r,{case:`${r.target_days} days`})), "Autonomy target");
@@ -804,7 +841,7 @@ function drawGenBat(){
   const opts = GB.options.slice(0, 12);
   const labels = opts.map(o=>`${fmt(o.gen_kw,o.gen_kw%1?1:0)} kW + ${fmt(o.bat_kwh)} kWh${o.best?" ★":""}`);
   const comps = Object.keys(GB.best_wt);
-  const ccol = {"PV array":"--pv","Battery":"--bat","Inverter":"--mute","Generator":"--gen","Fuel + tank":"--mag","Heat pumps":"--accent","Fixed pod systems":"--rule"};
+  const ccol = {"PV array":"--pv","Battery":"--bat","Inverter":"--mute","Generator":"--gen","Fuel + tank":"--mag","Heat pumps":"--accent","Propane heaters":"--heat","Propane cylinders":"--warn","Fixed pod systems":"--rule"};
   const st = comps.map(c=>({type:"bar",orientation:"h",name:c,y:labels,x:opts.map(o=>o.wt[c]),marker:{color:css(ccol[c]||"--mute"),line:{color:css("--panel"),width:1}},
      hovertemplate:`${c}: %{x:,.0f} lb<extra></extra>`}));
   L=baseLayout({hovermode:"closest",barmode:"stack"});

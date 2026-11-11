@@ -41,7 +41,7 @@
     "snow_clearing_hour": 9
   },
   "hp": {
-    "unit_kw": 3.5
+    "model": "portable_14k"
   },
   "battery": {
     "soc_min": 0.1,
@@ -60,13 +60,15 @@
     "deployment_days_per_year": 12,
     "fuel_usd_per_l": 1.15,
     "carbon_usd_per_t": 190,
-    "idle_pv_usd_per_kwh": 0.0
+    "idle_pv_usd_per_kwh": 0.0,
+    "propane_usd_per_gal": 2.85
   },
   "constraints": {
     "max_payload_kg": 2900,
     "max_pv_area_m2": 110,
     "objective": "lifecycle",
-    "min_autonomy_days": 0
+    "min_autonomy_days": 0,
+    "propane_days_onboard": 3
   },
   "space": {
     "pv_kw": [
@@ -74,10 +76,7 @@
       3,
       6,
       9,
-      12,
-      15,
-      18,
-      21
+      12
     ],
     "bat_kwh": [
       0,
@@ -85,43 +84,50 @@
       20,
       30,
       45,
-      60,
-      80,
-      100
+      60
     ],
     "gen_kw": [
       0,
+      5,
       6,
       8,
       10,
       12,
       15,
-      20,
-      25,
-      30
+      20
     ],
     "hp_units": [
+      0,
+      1,
       2,
       3,
       4,
       5,
       6,
       7,
-      8,
-      9,
-      10,
-      11,
-      12,
-      13,
-      14,
-      15,
-      16
+      8
     ],
     "tank_l": [
       190,
-      380,
-      570
+      380
+    ],
+    "ph_kbtu": [
+      0,
+      50,
+      100,
+      150,
+      200,
+      250,
+      300,
+      350,
+      400
     ]
   },
-  "_window_types": "window_type options: single_pane, single_storm, double_clear, double_lowe, triple_lowe (or set window_u_ip in Btu/h-ft2-F and window_shgc to model a specific NFRC-rated product)"
+  "_window_types": "window_type options: single_pane, single_storm, double_clear, double_lowe, triple_lowe (or set window_u_ip in Btu/h-ft2-F and window_shgc to model a specific NFRC-rated product)",
+  "propane": {
+    "model": "indirect",
+    "lead_below_c": null
+  },
+  "_hp_models": "hp.model: portable_14k (14,000 Btu/h portable heat/cool unit, default) or cold_climate_12k (mini-split head)",
+  "_propane_models": "propane.model: indirect (vented, for occupied spaces, default) or direct (unvented forced-air). lead_below_c: null = heat pumps heat first; a temperature in C = propane heats first below it"
 }

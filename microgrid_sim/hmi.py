@@ -26,7 +26,7 @@ TEMPLATE = r"""<title>MOD POD Microgrid HMI</title>
   --bg:#d3d7da; --panel:#e3e6e8; --panel2:#eef0f1; --eq:#f3f4f5; --line:#9aa1a8; --edge:#6f777e;
   --ink:#1c2126; --ink2:#46505a; --mute:#69737c;
   --pv:#b8860b; --bat:#2f6db5; --gen:#7b4f2c; --ev:#2e8b57; --elec:#5b4aa2; --heat:#d2541c; --cool:#1f8fa8;
-  --alarm:#c62828; --warn:#f0b400; --ok:#2e7d32;
+  --lp:#a3367a; --alarm:#c62828; --warn:#f0b400; --ok:#2e7d32;
   --f-ui:"Segoe UI","Roboto","Helvetica Neue",Arial,system-ui,sans-serif;
   --f-num:ui-monospace,"SF Mono","Cascadia Mono",Consolas,"Roboto Mono",monospace;
 }
@@ -153,7 +153,7 @@ table.kpi tr.bad td.v{color:var(--alarm);font-weight:700}
         <path class="track" d="M125 150V230"/><path class="track" d="M365 150V230"/><path class="track" d="M605 150V230"/><path class="track" d="M895 150V230"/>
         <path class="track" d="M725 95H700"/>
         <path class="track" d="M135 230V310"/><path class="track" d="M365 230V310"/><path class="track" d="M605 230V310"/><path class="track" d="M860 230V310"/>
-        <path class="track" d="M135 410V490"/><path class="track" d="M590 560H680"/>
+        <path class="track" d="M135 410V450H330V490"/><path class="track" d="M590 560H680"/><path class="track" d="M210 562H280"/>
         <!-- flows -->
         <path id="f-pv" class="flow" d="M125 150V230" stroke="var(--pv)"/>
         <path id="f-bat" class="flow" d="M365 150V230" stroke="var(--bat)"/>
@@ -164,7 +164,8 @@ table.kpi tr.bad td.v{color:var(--alarm);font-weight:700}
         <path id="f-crit" class="flow" d="M365 230V310" stroke="var(--elec)"/>
         <path id="f-ess" class="flow" d="M605 230V310" stroke="var(--elec)"/>
         <path id="f-disc" class="flow" d="M860 230V310" stroke="var(--elec)"/>
-        <path id="f-heat" class="flow" d="M135 410V490" stroke="var(--heat)"/>
+        <path id="f-heat" class="flow" d="M135 410V450H330V490" stroke="var(--heat)"/>
+        <path id="f-ph" class="flow" d="M210 562H280" stroke="var(--lp)"/>
         <path id="f-loss" class="flow" d="M590 560H680" stroke="var(--heat)"/>
         <!-- bus -->
         <line class="bus" x1="40" y1="230" x2="960" y2="230"/>
@@ -178,7 +179,8 @@ table.kpi tr.bad td.v{color:var(--alarm);font-weight:700}
         <text class="t-flow" x="373" y="276" id="v-crit" fill="var(--elec)"></text>
         <text class="t-flow" x="613" y="276" id="v-ess" fill="var(--elec)"></text>
         <text class="t-flow" x="868" y="276" id="v-disc" fill="var(--elec)"></text>
-        <text class="t-flow" x="143" y="456" id="v-heat" fill="var(--heat)"></text>
+        <text class="t-flow" x="340" y="478" id="v-heat" fill="var(--heat)"></text>
+        <text class="t-flow" x="245" y="552" id="v-ph" fill="var(--lp)" text-anchor="middle"></text>
         <text class="t-flow" x="635" y="550" id="v-loss" fill="var(--heat)" text-anchor="middle"></text>
 
         <!-- PV -->
@@ -233,7 +235,7 @@ table.kpi tr.bad td.v{color:var(--alarm);font-weight:700}
         <!-- loads -->
         <g class="eqhit" data-eq="hp" tabindex="0" role="button" aria-label="Heat pump details">
           <rect class="eqbox" x="30" y="310" width="210" height="100" rx="6"/>
-          <text class="t-name" x="44" y="331">HEAT PUMPS</text>
+          <text class="t-name" x="44" y="331">HEAT/COOL UNITS</text>
           <text class="t-st" x="226" y="331" text-anchor="end" id="hp-st"></text>
           <text class="t-big" x="44" y="362" id="hp-kw"></text>
           <text class="t-sm" x="44" y="382" id="hp-sub"></text>
@@ -263,28 +265,33 @@ table.kpi tr.bad td.v{color:var(--alarm);font-weight:700}
           <text class="t-sm" x="764" y="382">device charging,</text>
           <text class="t-sm" x="764" y="399">heat-pump water heater</text>
         </g>
+        <!-- propane heaters -->
+        <g class="eqhit" data-eq="ph" tabindex="0" role="button" aria-label="Propane heater details">
+          <rect class="eqbox" x="30" y="490" width="180" height="145" rx="6"/>
+          <text class="t-name" x="44" y="512">PROPANE HEATERS</text>
+          <text class="t-st" x="44" y="530" id="ph-st"></text>
+          <text class="t-big" x="44" y="562" id="ph-kw"></text>
+          <text class="t-sm" x="44" y="584" id="ph-sub"></text>
+          <text class="t-sm" x="44" y="602" id="ph-sub2"></text>
+          <text class="t-sm" x="44" y="620" id="ph-sub3"></text>
+        </g>
         <!-- building -->
         <g class="eqhit" data-eq="bldg" tabindex="0" role="button" aria-label="Shelter building details">
-          <rect class="eqbox" x="30" y="490" width="560" height="145" rx="6"/>
-          <text class="t-name" x="44" y="512" id="b-name">SHELTER</text>
+          <rect class="eqbox" x="280" y="490" width="310" height="145" rx="6"/>
+          <text class="t-name" x="294" y="512" id="b-name">SHELTER</text>
           <text class="t-st" x="576" y="512" text-anchor="end" id="b-st"></text>
-          <text class="t-sm" x="44" y="534">Indoor air</text>
-          <text class="t-big" x="44" y="562" id="b-tin" style="font-size:30px"></text>
-          <text class="t-sm" x="44" y="584" id="b-tm"></text>
-          <text class="t-sm" x="214" y="534">Heat in</text>
-          <text class="t-mid" x="214" y="552" id="b-qin"></text>
-          <text class="t-sm" x="214" y="574">Solar · people &amp; equipment</text>
-          <text class="t-mid" x="214" y="592" id="b-gain"></text>
-          <text class="t-sm" x="410" y="534">Heat lost to outdoors</text>
-          <text class="t-mid" x="410" y="552" id="b-loss"></text>
-          <text class="t-sm" x="410" y="574">Thermostat heat · cool</text>
-          <text class="t-mid" x="410" y="592" id="b-sp"></text>
-          <!-- thermometer scale 30..100 F -->
-          <rect x="44" y="606" width="530" height="10" rx="2" fill="#fff" stroke="var(--edge)" stroke-width=".8"/>
+          <text class="t-sm" x="294" y="534">Indoor air</text>
+          <text class="t-big" x="294" y="562" id="b-tin" style="font-size:28px"></text>
+          <text class="t-sm" x="294" y="584" id="b-tm"></text>
+          <text class="t-sm" x="440" y="534">Heat in</text>
+          <text class="t-mid" x="440" y="552" id="b-qin"></text>
+          <text class="t-sm" x="440" y="574">Solar · people</text>
+          <text class="t-mid" x="440" y="592" id="b-gain"></text>
+          <rect x="294" y="606" width="282" height="10" rx="2" fill="#fff" stroke="var(--edge)" stroke-width=".8"/>
           <rect id="b-band" y="606" height="10" fill="var(--ok)" fill-opacity=".18"/>
           <line id="b-mark" y1="601" y2="621" stroke="var(--ink)" stroke-width="3"/>
-          <text class="t-sm" x="44" y="630" id="b-s0"></text>
-          <text class="t-sm" x="574" y="630" text-anchor="end" id="b-s1"></text>
+          <text class="t-sm" x="294" y="630" id="b-s0"></text>
+          <text class="t-sm" x="576" y="630" text-anchor="end" id="b-s1"></text>
         </g>
         <!-- outdoor -->
         <g class="eqhit" data-eq="out" tabindex="0" role="button" aria-label="Outdoor conditions details">
@@ -362,10 +369,10 @@ try { const k = localStorage.getItem("hmi-cond"); const j = D.order.indexOf(k); 
 
 // ---------- static text ----------
 $("site").textContent = `${D.site.name} · ${f1(D.building.area_ft2,0)} ft² shelter · ${D.building.occupants} occupants`;
-$("designline").textContent = `PV ${f1(ds.pv_kw)} kW · battery ${f1(ds.bat_kwh,0)} kWh · generator ${f1(ds.gen_kw)} kW, ${f1(ds.tank_gal,0)} gal · heat pumps ${f1(ds.hp_kw)} kW`;
+$("designline").textContent = `PV ${f1(ds.pv_kw)} kW · battery ${f1(ds.bat_kwh,0)} kWh · generator ${f1(ds.gen_kw)} kW, ${f1(ds.tank_gal,0)} gal · ${f1(ds.hp_units,0)} heat/cool unit${ds.hp_units==1?"":"s"} · propane ${f1(ds.ph_kbtu,0)} kBtu/h`;
 $("conds").innerHTML = D.conditions.map((c, i) => `<button role="tab" data-i="${i}" aria-selected="${i===ci}">${c.label}</button>`).join("");
 $("conds").addEventListener("click", e => { const i = e.target.dataset.i; if (i == null) return; setCond(+i); });
-$("b-name").textContent = `SHELTER · ${f1(D.building.area_ft2,0)} FT² · ${D.building.occupants} PEOPLE`;
+$("b-name").textContent = `SHELTER · ${D.building.occupants} PEOPLE`;
 $("pv-rate").textContent = `Rated ${f1(ds.pv_kw)} kW · ${f1(D.pv.tilt,0)}° tilt`;
 
 // ---------- flows ----------
@@ -392,7 +399,7 @@ function alarmsAt(i) {
   else if (ds.gen_kw > 0 && g("fuel_pct") < 25) a.push(["warn", `Fuel low ${f1(g("fuel_gal"),0)} gal`]);
   if (g("shed_disc") > 0.01) a.push(["warn", `Discretionary loads shed ${f1(g("shed_disc"))} kW`]);
   if (ds.bat_kwh > 0 && g("soc") < 15) a.push(["warn", `Battery low ${f1(g("soc"),0)} %`]);
-  if (g("q_need") - g("q_heat") - g("q_cool") > 0.3 && g("shed_hvac") < 0.01) a.push(["warn", `Heat pumps at capacity, ${f1(g("q_need")-g("q_heat")-g("q_cool"))} kW short`]);
+  if (g("q_need") - g("q_heat") - g("q_ph") - g("q_cool") > 0.3 && g("shed_hvac") < 0.01) a.push(["warn", `Heating/cooling at capacity, ${f1(g("q_need")-g("q_heat")-g("q_ph")-g("q_cool"))} kW short`]);
   if (ds.pv_kw > 0 && g("pv_cover") > 50) a.push(["warn", C.key === "ice_storm" ? "PV array iced" : "PV array snow-covered"]);
   return a;
 }
@@ -451,14 +458,14 @@ function update() {
   txt("ev-sub", `budget left ${f1(v("ev_left"))} kWh`);
   stat("ev-st", v("ev") > 0.05 ? "SUPPLYING" : (S.ev_left[0] > 0 ? "STANDBY" : "NOT ALLOCATED"), v("ev") > 0.05 ? css("--ev") : css("--mute"));
   // loads
-  const hpE = v("hvac");
+  const hpE = v("hvac"), hpOnly = Math.max(0, hpE - v("ph_fan"));
   flow("f-hp", hpE); txt("v-hp", hpE > 0.05 ? `${f1(hpE)} kW ↓` : "");
-  txt("hp-kw", `${f1(hpE)} kW in`);
+  txt("hp-kw", `${f1(hpOnly)} kW in`);
   const heating = v("q_heat") > 0.05, cooling = v("q_cool") > 0.05;
-  txt("hp-sub", heating ? `${f1(v("q_heat"))} kW heat out · COP ${f1(v("cop"),2)}` : cooling ? `${f1(v("q_cool"))} kW cooling · COP ${f1(v("cop"),2)}` : "thermostat satisfied");
-  txt("hp-sub2", `capacity ${f1(v("hp_cap"))} of ${f1(ds.hp_kw)} kW`);
+  txt("hp-sub", heating ? `${f1(v("q_heat"))} kW heat out · COP ${f1(v("cop"),2)}` : cooling ? `${f1(v("q_cool"))} kW cooling · COP ${f1(v("cop"),2)}` : v("hp_cap") < 0.01 && v("q_ph") > 0.05 ? "too cold for heat pumps" : "thermostat satisfied");
+  txt("hp-sub2", `${f1(ds.hp_units,0)} unit${ds.hp_units==1?"":"s"} · capacity ${f1(v("hp_cap"))} kW`);
   if (v("shed_hvac") > 0.01) stat("hp-st", "CURTAILED", css("--alarm"));
-  else if (v("q_need") - v("q_heat") - v("q_cool") > 0.3) stat("hp-st", "AT CAPACITY", "#a07800");
+  else if (v("q_need") - v("q_heat") - v("q_ph") - v("q_cool") > 0.3) stat("hp-st", "AT CAPACITY", "#a07800");
   else stat("hp-st", heating ? "HEATING" : cooling ? "COOLING" : "IDLE", heating ? css("--heat") : cooling ? css("--cool") : css("--mute"));
   for (const [k, sk] of [["crit","shed_crit"],["ess","shed_ess"],["disc","shed_disc"]]) {
     const served = v(k) - v(sk);
@@ -474,14 +481,20 @@ function update() {
   $("v-heat").setAttribute("fill", qnet < 0 ? css("--cool") : css("--heat"));
   txt("v-heat", Math.abs(qnet) > 0.05 ? `${f1(Math.abs(qnet))} kW ${qnet > 0 ? "heat ↓" : "removed ↑"}` : "");
   flow("f-loss", v("q_loss"), v("q_loss") < 0);
+  // propane heaters
+  flow("f-ph", v("q_ph")); txt("v-ph", v("q_ph") > 0.05 ? `${f1(v("q_ph"))} kW` : "");
+  txt("ph-kw", `${f1(v("q_ph"))} kW`);
+  txt("ph-sub", `${f1(ds.ph_kbtu,0)} kBtu/h · ${f1(v("propane_gph"),2)} gal/h`);
+  txt("ph-sub2", `used ${f1(v("propane_used"),1)} gal`);
+  txt("ph-sub3", `blowers ${f1(v("ph_fan"),2)} kW`);
+  if (ds.ph_kbtu <= 0) stat("ph-st", "NOT FITTED");
+  else stat("ph-st", v("q_ph") > 0.05 ? `FIRING ${f1(v("q_ph") / (ds.ph_kbtu * 0.29307) * 100, 0)} %` : "STANDBY", v("q_ph") > 0.05 ? css("--lp") : css("--mute"));
   txt("v-loss", `${f1(Math.abs(v("q_loss")))} kW ${v("q_loss") >= 0 ? "→" : "←"}`);
   txt("b-tin", `${f1(v("t_in"))} °F`);
   txt("b-tm", `structure ${f1(v("t_mass"))} °F`);
-  txt("b-qin", heating ? `${f1(v("q_heat"))} kW from heat pumps` : cooling ? `${f1(v("q_cool"))} kW removed` : "0.0 kW");
+  txt("b-qin", cooling ? `${f1(v("q_cool"))} kW removed` : `${f1(v("q_heat") + v("q_ph"))} kW`);
   txt("b-gain", `${f1(v("solar_gain"))} · ${f1(v("internal_gain"))} kW`);
-  txt("b-loss", `${f1(v("q_loss"))} kW`);
-  txt("b-sp", `${f1(C.heat_setpoint_f,0)} · ${f1(C.cool_setpoint_f,0)} °F`);
-  const X = f => 44 + 530 * (Math.max(30, Math.min(100, f)) - 30) / 70;
+  const X = f => 294 + 282 * (Math.max(30, Math.min(100, f)) - 30) / 70;
   $("b-band").setAttribute("x", X(C.t_min_f)); $("b-band").setAttribute("width", X(C.t_max_f) - X(C.t_min_f));
   $("b-mark").setAttribute("x1", X(v("t_in"))); $("b-mark").setAttribute("x2", X(v("t_in")));
   $("b-mark").setAttribute("stroke", v("t_in") < C.t_min_f || v("t_in") > C.t_max_f ? css("--alarm") : css("--ink"));
@@ -498,7 +511,7 @@ function update() {
 }
 
 // ---------- faceplate ----------
-const EQ = {pv:"PV array", bat:"Battery", gen:"Generator", tank:"Fuel tank", ev:"EV pickup", hp:"Heat pumps", crit:"Critical loads", ess:"Essential loads", disc:"Discretionary loads", bldg:"Shelter", out:"Outdoor"};
+const EQ = {pv:"PV array", bat:"Battery", gen:"Generator", tank:"Fuel tank", ev:"EV pickup", hp:"Heat/cool units", ph:"Propane heaters", crit:"Critical loads", ess:"Essential loads", disc:"Discretionary loads", bldg:"Shelter", out:"Outdoor"};
 $("fp-pick").innerHTML = Object.entries(EQ).map(([k, n]) => `<button data-eq="${k}" aria-pressed="${k===sel}">${n}</button>`).join("");
 $("fp-pick").addEventListener("click", e => { if (e.target.dataset.eq) select(e.target.dataset.eq); });
 document.querySelectorAll(".eqhit").forEach(g => {
@@ -525,12 +538,15 @@ function faceplate() {
   if (sel === "tank") { R("Fuel left", `${f1(v("fuel_gal"),1)} gal · ${f1(v("fuel_pct"),0)} %`); R("Burn rate now", `${f1(v("fuel_gph"),2)} gal/h`); R("Hours left at this rate", v("fuel_gph") > 0.01 ? f1(v("fuel_gal")/v("fuel_gph"),0) : "–");
     H("Week"); R("Fuel used", `${f1(T.fuel_gal,1)} gal`); R("Average", `${f1(T.fuel_gal/(N/24),1)} gal/day`); R("One tank lasts at this average", T.fuel_gal > 0 ? `${f1(ds.tank_gal/(T.fuel_gal/(N/24)),1)} days` : "–"); H("Rating"); R("Tank", `${f1(ds.tank_gal,0)} gal`); }
   if (sel === "ev") { R("Output", `${f1(v("ev"))} kW`); R("Budget left", `${f1(v("ev_left"))} kWh`); H("Week"); R("Energy supplied", `${f1(T.ev_kwh,0)} kWh`); }
+  if (sel === "ph") { R("Heat out", `${f1(v("q_ph"))} kW (${f1(v("q_ph")*3.41214,1)} kBtu/h)`); R("Firing rate", ds.ph_kbtu > 0 ? `${f1(v("q_ph")/(ds.ph_kbtu*0.29307)*100,0)} %` : "–"); R("Propane burn", `${f1(v("propane_gph"),2)} gal/h`); R("Blower power", `${f1(v("ph_fan"),2)} kW`); R("Used so far", `${f1(v("propane_used"),1)} gal`);
+    H("Week"); R("Heat delivered", `${f1(T.ph_heat,0)} kWh`); R("Share of heating", `${f1(T.ph_heat/Math.max(T.ph_heat+T.heat,1e-9)*100,0)} %`); R("Propane used", `${f1(T.propane_gal,1)} gal (${f1(T.propane_gal/23.6,1)} × 100-lb cylinders)`); R("Worst 3 days", `${f1(T.propane_worst_3d,1)} gal`);
+    H("Rating"); R("Installed", `${f1(ds.ph_kbtu,0)} kBtu/h (${f1(ds.ph_kbtu*0.29307,1)} kW)`); R("Type", D.propane.label); R("Efficiency", `${f1(D.propane.efficiency*100,0)} %`); R("Carried on trailer", `${f1(D.propane.cylinders,0)} × 100-lb cylinders (${f1(D.propane.days_onboard,0)} days)`); }
   if (sel === "hp") { R("Electric input", `${f1(v("hvac"))} kW`); R("Heat out", `${f1(v("q_heat"))} kW`); R("Cooling", `${f1(v("q_cool"))} kW`); R("COP", v("cop") > 0 ? f1(v("cop"),2) : "–"); R("Capacity at this temperature", `${f1(v("hp_cap"))} kW`); R("Building needs", `${f1(v("q_need"))} kW`); R("Shortfall", `${f1(Math.max(0, v("q_need")-v("q_heat")-v("q_cool")))} kW`);
-    H("Week"); R("Heat delivered", `${f1(T.heat,0)} kWh`); R("Cooling delivered", `${f1(T.cool,0)} kWh`); R("Electricity used", `${f1(T.hvac,0)} kWh`); R("Average COP", T.hvac > 0 ? f1((T.heat + T.cool)/T.hvac, 2) : "–"); H("Rating"); R("Installed", `${f1(ds.hp_kw)} kW (${f1(ds.hp_units,0)} × ${D.hp.unit_kw} kW)`); }
+    H("Week"); R("Heat delivered", `${f1(T.heat,0)} kWh`); R("Cooling delivered", `${f1(T.cool,0)} kWh`); R("Electricity used", `${f1(T.hvac,0)} kWh`); R("Average COP", T.hvac > 0 ? f1((T.heat + T.cool)/T.hvac, 2) : "–"); H("Rating"); R("Installed", `${f1(ds.hp_units,0)} × ${D.hp.label}`); R("Heating per unit", `${f1(D.hp.unit_kw,2)} kW above 44 °F`); }
   if (["crit","ess","disc"].includes(sel)) { const sk = "shed_" + sel; R("Demand", `${f1(v(sel),2)} kW`); R("Served", `${f1(v(sel)-v(sk),2)} kW`); R("Shed", `${f1(v(sk),2)} kW`);
     H("Week"); R("Energy demand", `${f1(sum(sel),1)} kWh`); R("Energy shed", `${f1(sum(sk),1)} kWh`); R("Hours with shedding", f1(S[sk].filter(x => x > 0.01).length, 0));
     H("Priority"); R("Shed order", {crit:"last (4 of 4)", ess:"third (3 of 4)", disc:"first (1 of 4)"}[sel]); }
-  if (sel === "bldg") { R("Indoor air", `${f1(v("t_in"))} °F`); R("Structure", `${f1(v("t_mass"))} °F`); R("Heat-pump heat", `${f1(v("q_heat"))} kW`); R("Cooling", `${f1(v("q_cool"))} kW`); R("Solar gain", `${f1(v("solar_gain"))} kW`); R("People and equipment", `${f1(v("internal_gain"))} kW`); R("Lost to outdoors", `${f1(v("q_loss"))} kW`);
+  if (sel === "bldg") { R("Indoor air", `${f1(v("t_in"))} °F`); R("Structure", `${f1(v("t_mass"))} °F`); R("Heat-pump heat", `${f1(v("q_heat"))} kW`); R("Propane heat", `${f1(v("q_ph"))} kW`); R("Thermostat heat / cool", `${f1(C.heat_setpoint_f,0)} / ${f1(C.cool_setpoint_f,0)} °F`); R("Cooling", `${f1(v("q_cool"))} kW`); R("Solar gain", `${f1(v("solar_gain"))} kW`); R("People and equipment", `${f1(v("internal_gain"))} kW`); R("Lost to outdoors", `${f1(v("q_loss"))} kW`);
     H("Week"); R("Coldest / warmest", `${f1(T.t_min)} / ${f1(T.t_max)} °F`); R(`Hours below ${f1(C.t_min_f,0)} °F`, f1(T.hours_cold,0)); R(`Hours above ${f1(C.t_max_f,0)} °F`, f1(T.hours_hot,0));
     H("Building"); R("Heat loss coefficient", `${f1(D.building.ua_w_k,0)} W/K`); R("Windows", D.building.windows); }
   if (sel === "out") { R("Temperature", `${f1(v("t_out"))} °F`); R("Sun", `${f1(v("ghi"),2)} kW/m²`); R("Wind", `${f1(v("wind_mph"),0)} mph`);
@@ -544,8 +560,8 @@ const TR = [
    lines:[["Load + battery charging","--ink",i=>S.load[i]+S.bat_ch[i],1.6],["Heat-pump draw","--elec",i=>S.hvac[i],1.2,[4,3]]], min0:true},
   {id:"c1", lg:"lg1", band:true, lines:[["Indoor","--bat",i=>S.t_in[i],2.2],["Structure","--elec",i=>S.t_mass[i],1.1],["Outdoor","--mute",i=>S.t_out[i],1.3,[5,4]]]},
   {id:"c2", lg:"lg2", gen:true, lines:[["Battery charge","--bat",i=>S.soc[i],2],["Fuel in tank","--gen",i=>S.fuel_pct[i],2]], fixed:[0,100]},
-  {id:"c3", lg:"lg3", stack:[["Heat-pump heat","--heat",i=>S.q_heat[i]],["Solar gain","--pv",i=>S.solar_gain[i]],["People & equipment","--elec",i=>S.internal_gain[i]]],
-   lines:[["Heat to hold thermostat (capped)","--ink",i=>Math.min(S.q_need[i]*(S.q_cool[i]>0?0:1), ds.hp_kw*1.25),1.4,[4,3]],["Lost to outdoors","--alarm",i=>S.q_loss[i],1.4],["Cooling","--cool",i=>S.q_cool[i],1.6]], min0:true},
+  {id:"c3", lg:"lg3", stack:[["Propane heat","--lp",i=>S.q_ph[i]],["Heat-pump heat","--heat",i=>S.q_heat[i]],["Solar gain","--pv",i=>S.solar_gain[i]],["People & equipment","--elec",i=>S.internal_gain[i]]],
+   lines:[["Heat to hold thermostat (capped)","--ink",i=>Math.min(S.q_need[i]*(S.q_cool[i]>0?0:1), (ds.hp_kw + ds.ph_kbtu*0.29307)*1.25),1.4,[4,3]],["Lost to outdoors","--alarm",i=>S.q_loss[i],1.4],["Cooling","--cool",i=>S.q_cool[i],1.6]], min0:true},
 ];
 function legends() {
   for (const c of TR) {
@@ -628,7 +644,8 @@ function totals() {
   R("Energy demand", `${f1(T.demand,0)} kWh`); R("Unserved energy", `${f1(T.unmet,1)} kWh`, T.unmet > 0.5); R("Critical loads unserved", `${f1(T.unmet_crit,1)} kWh`, T.unmet_crit > 0.01);
   R("Coldest / warmest indoor", `${f1(T.t_min)} / ${f1(T.t_max)} °F`, T.hours_cold > 0 || T.hours_hot > 0);
   R(`Hours outside ${f1(C.t_min_f,0)}–${f1(C.t_max_f,0)} °F`, f1(T.hours_cold + T.hours_hot, 0), T.hours_cold + T.hours_hot > 0);
-  R("Fuel used / left", `${f1(T.fuel_gal,1)} / ${f1(T.fuel_left_gal,1)} gal`, ds.gen_kw > 0 && T.fuel_left_gal < 0.5);
+  R("Diesel used / left", `${f1(T.fuel_gal,1)} / ${f1(T.fuel_left_gal,1)} gal`, ds.gen_kw > 0 && T.fuel_left_gal < 0.5);
+  R("Propane used", `${f1(T.propane_gal,1)} gal · ${f1(T.propane_gal/23.6,1)} × 100-lb cylinders`);
   R("Generator run time · starts", `${f1(T.gen_hours,0)} h · ${f1(T.gen_starts,0)}`);
   R("PV used / curtailed", `${f1(T.pv_used,0)} / ${f1(T.curtail,0)} kWh`);
   R("Share of supply from PV", `${f1(T.pv_share*100,0)} %`);
@@ -636,7 +653,7 @@ function totals() {
   $("kpi").innerHTML = rows.join("");
   const d = [], P = (a, b, bad) => d.push(`<tr class="${bad ? "bad" : ""}"><td>${a}</td><td class="v">${b}</td></tr>`);
   P("PV array", `${f1(ds.pv_kw)} kW`); P("Battery", `${f1(ds.bat_kwh,0)} kWh`); P("Generator · tank", `${f1(ds.gen_kw)} kW · ${f1(ds.tank_gal,0)} gal`);
-  P("Heat pumps", `${f1(ds.hp_kw)} kW`); P("Inverter", `${f1(ds.inverter_kw,0)} kW`); P("Equipment cost (planning)", `$${f1(D.capex/1000,1)}k`);
+  P("Heat/cool units", `${f1(ds.hp_units,0)} × ${D.hp.label}`); P("Propane heaters", `${f1(ds.ph_kbtu,0)} kBtu/h · ${f1(D.propane.cylinders,0)} × 100-lb cylinders`); P("Inverter", `${f1(ds.inverter_kw,0)} kW`); P("Equipment cost (planning)", `$${f1(D.capex/1000,1)}k`);
   P("Trailer payload", `${f1(D.payload_lb,0)} of ${f1(D.payload_limit_lb,0)} lb`, D.payload_lb > D.payload_limit_lb);
   $("dsg").innerHTML = d.join("");
   $("foot").textContent = `${D.source}. Hourly simulation with the sizing tool's building, load and equipment models. Sizes are entered by hand, not optimized.`;

@@ -25,7 +25,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from .models import (Battery, Building, EVSupport, Generator, HeatPump, Loads, PVArray,
+from .models import (PROPANE_KWH_PER_GAL, Battery, Building, EVSupport, Generator, HeatPump, Loads, PVArray,
                      occupant_gains_kw)
 from .solar import iam_ashrae, poa_irradiance
 
@@ -87,9 +87,19 @@ def _thermal_coeffs(tp, dt=3600.0):
 
 
 def simulate(sc: Scenario, pv_kw, bat_kwh, gen_kw, hp_kw, building: Building, hp: HeatPump,
-             bat: Battery, gen: Generator, ev: EVSupport, record: bool = False, tank_l: float | None = None) -> dict:
-    """Simulate N designs (arrays) through one scenario. Returns metrics dict of (N,) arrays."""
-    pv_kw, bat_kwh, gen_kw, hp_kw = (np.asarray(x, float) for x in np.broadcast_arrays(pv_kw, bat_kwh, gen_kw, hp_kw))
+             bat: Battery, gen: Generator, ev: EVSupport, record: bool = False, tank_l: float | None = None,
+             ph_kw=0.0, ph=None) -> dict:
+    """Simulate N designs (arrays) through one scenario. Returns metrics dict of (N,) arrays.
+
+    ph_kw: propane-heater output capacity (kW of heat), ph: PropaneHeater parameters (None = no propane).
+    """
+    pv_kw, bat_kwh, gen_kw, hp_kw, ph_kw = (np.asarray(x, float) for x in
+                                            np.broadcast_arrays(pv_kw, bat_kwh, gen_kw, hp_kw, ph_kw))
+    if ph is None:
+        ph_kw = np.zeros_like(ph_kw)
+    ph_eff = ph.efficiency if ph is not None else 1.0
+    ph_fan = ph.fan_kw_per_kw if ph is not None else 0.0
+    ph_lead = ph.lead_below_c if ph is not None else None
     N = pv_kw.shape[0]
     T = sc.hours
     tp = building.thermal_params()
@@ -111,7 +121,7 @@ def simulate(sc: Scenario, pv_kw, bat_kwh, gen_kw, hp_kw, building: Building, hp
     m = {k: z() for k in ("demand", "served", "unmet", "unmet_crit", "pv_avail", "pv_used", "curtail",
                           "gen_kwh", "fuel_l", "gen_hours", "gen_starts", "bat_dis", "bat_ch", "ev_kwh",
                           "hvac_kwh", "heat_kwh", "cool_kwh", "heat_short_kwh", "cold_dh", "hot_dh",
-                          "peak_load", "dump")}
+                          "peak_load", "dump", "ph_heat_kwh", "propane_gal")}
     m["t_min"] = np.full(N, np.inf)
     m["t_max"] = np.full(N, -np.inf)
     first_unmet = np.full(N, np.inf)
@@ -120,7 +130,7 @@ def simulate(sc: Scenario, pv_kw, bat_kwh, gen_kw, hp_kw, building: Building, hp
                 # detailed flows (used by the week HMI)
                 "pv_avail", "pv_to_load", "pv_to_bat", "gen_out", "gen_to_load", "gen_to_bat", "dump", "gen_on",
                 "fuel_rate", "fuel_left", "ev_left", "crit", "ess", "disc", "hvac_dem", "shed_crit", "shed_ess",
-                "shed_disc", "shed_hvac", "cop", "hp_cap", "q_need", "t_mass", "q_loss", "soc_kwh")
+                "shed_disc", "shed_hvac", "cop", "hp_cap", "q_need", "t_mass", "q_loss", "soc_kwh", "q_ph", "propane_gph", "ph_fan")
     rec = {k: np.zeros((T, N)) for k in REC_KEYS} if record else None
 
     hs, cs = building.heat_setpoint_c, building.cool_setpoint_c
@@ -139,13 +149,17 @@ def simulate(sc: Scenario, pv_kw, bat_kwh, gen_kw, hp_kw, building: Building, hp
         capf_h, cop_h = hp.heat_perf(to)
         capf_c, cop_c = hp.cool_perf(to)
         cap_h, cap_c = hp_kw * capf_h, hp_kw * capf_c
-        qh = np.minimum(qh_need, cap_h)
+        lead = (np.zeros(N, bool) if ph_lead is None
+                else np.broadcast_to(np.asarray(to) < ph_lead, (N,)))
+        q_ph1 = np.where(lead, np.minimum(qh_need, ph_kw), 0.0)          # propane first (cold weather)
+        qh = np.minimum(qh_need - q_ph1, cap_h)                             # heat pumps
+        q_ph = q_ph1 + np.where(lead, 0.0, np.minimum(qh_need - qh, ph_kw)) # propane tops up
         qc = np.minimum(qc_need, cap_c)
         plr_h = np.divide(qh, cap_h, out=np.zeros(N), where=cap_h > 0)
         plr_c = np.divide(qc, cap_c, out=np.zeros(N), where=cap_c > 0)
         p_hvac = (qh / (cop_h * (1 + hp.part_load_bonus * (1 - plr_h)))
                   + qc / (cop_c * (1 + hp.part_load_bonus * (1 - plr_c))))
-        p_hvac = np.where(np.isfinite(p_hvac), p_hvac, 0.0)
+        p_hvac = np.where(np.isfinite(p_hvac), p_hvac, 0.0) + q_ph * ph_fan   # + propane-heater blowers
         cop_eff = np.where(qh > 0, cop_h * (1 + hp.part_load_bonus * (1 - plr_h)),
                            np.where(qc > 0, cop_c * (1 + hp.part_load_bonus * (1 - plr_c)), 0.0))
 
@@ -200,9 +214,11 @@ def simulate(sc: Scenario, pv_kw, bat_kwh, gen_kw, hp_kw, building: Building, hp
         shed_crit = u - shed_ess
         hvac_frac = np.divide(p_hvac - shed_hvac, p_hvac, out=np.ones(N), where=p_hvac > 1e-9)
         qh_d, qc_d = qh * hvac_frac, qc * hvac_frac
+        q_ph_d = q_ph * hvac_frac                     # heater blowers need power too
+        lp_gal = q_ph_d / ph_eff / PROPANE_KWH_PER_GAL
 
         # --- building temperatures (backward Euler, 2x2 solved in closed form)
-        qa = qa_gain + qh_d - qc_d
+        qa = qa_gain + qh_d + q_ph_d - qc_d
         a11, a12, b1 = ca + hao + ham, -ham, ca * ta + qa + hao * to
         a21, a22, b2 = -ham, cm + hmo + ham, cm * tm + qm_gain + hmo * to
         det = a11 * a22 - a12 * a21
@@ -228,13 +244,16 @@ def simulate(sc: Scenario, pv_kw, bat_kwh, gen_kw, hp_kw, building: Building, hp
         m["hvac_kwh"] += p_hvac - shed_hvac
         m["heat_kwh"] += qh_d
         m["cool_kwh"] += qc_d
-        m["heat_short_kwh"] += qh_need - qh_d
+        m["heat_short_kwh"] += qh_need - qh_d - q_ph_d
+        m["ph_heat_kwh"] += q_ph_d
+        m["propane_gal"] += lp_gal
         m["cold_dh"] += np.maximum(building.min_indoor_c - ta, 0)
         m["hot_dh"] += np.maximum(ta - building.max_indoor_c, 0)
         m["t_min"] = np.minimum(m["t_min"], ta)
         m["t_max"] = np.maximum(m["t_max"], ta)
         m["peak_load"] = np.maximum(m["peak_load"], served)
-        first_unmet = np.where((unmet > 1e-3) & ~np.isfinite(first_unmet), t, first_unmet)
+        # autonomy: first hour essential or critical loads go unserved (trimming discretionary loads does not count)
+        first_unmet = np.where((shed_ess + shed_crit > 1e-3) & ~np.isfinite(first_unmet), t, first_unmet)
         if record:
             for k, v in (("pv", pv - (spill - dump)), ("gen", g_out - dump), ("bat_dis", b_dis), ("bat_ch", b_ch),
                          ("ev", e_dis), ("unmet", unmet), ("load", served), ("hvac", p_hvac - shed_hvac),
@@ -250,6 +269,7 @@ def simulate(sc: Scenario, pv_kw, bat_kwh, gen_kw, hp_kw, building: Building, hp
                          ("shed_ess", shed_ess), ("shed_disc", shed_disc), ("shed_hvac", shed_hvac),
                          ("cop", cop_eff), ("hp_cap", np.where(qc_need > 0, cap_c, cap_h)),
                          ("q_need", np.where(qh_need > 0, qh_need, qc_need)), ("t_mass", tm),
+                         ("q_ph", q_ph_d), ("propane_gph", lp_gal), ("ph_fan", q_ph_d * ph_fan),
                          ("q_loss", hao * (ta - to) + hmo * (tm - to)), ("soc_kwh", soc)):
                 rec[k][t] = v
 

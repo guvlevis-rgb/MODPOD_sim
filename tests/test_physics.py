@@ -6,7 +6,8 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from microgrid_sim.models import Battery, Building, EVSupport, Generator, HeatPump, Loads, PVArray  # noqa: E402
+from microgrid_sim.models import (Battery, Building, EVSupport, Generator, HeatPump, Loads, PVArray,  # noqa: E402
+                                  PropaneHeater, apply_hp_preset)
 from microgrid_sim.simulate import Scenario, simulate  # noqa: E402
 from microgrid_sim.weather import select_design_windows, synthesize_waitsfield  # noqa: E402
 
@@ -23,7 +24,8 @@ def test_steady_state_heating_matches_ua():
     b = Building()
     tp = b.thermal_params()
     sc = _flat_scenario(-10.0, gains=2.0)
-    r = simulate(sc, [0], [0], [50], [200], b, HeatPump(), Battery(), Generator(), EVSupport(), record=True, tank_l=1e6)
+    hp = apply_hp_preset(HeatPump(), "cold_climate_12k")      # portable units do not heat at -10 C
+    r = simulate(sc, [0], [0], [50], [200], b, hp, Battery(), Generator(), EVSupport(), record=True, tank_l=1e6)
     q_last = r["series"]["q_heat"][-24:, 0].mean()
     expected = tp["ua_total"] / 1000 * (b.heat_setpoint_c + 10.0) - 2.0
     assert abs(q_last - expected) / expected < 0.02, (q_last, expected)
@@ -65,8 +67,23 @@ def test_window_inputs():
     assert south > 2 * north
 
 
+def test_propane_heater_balance():
+    """Propane heat delivered matches fuel burned x efficiency, and tops up a heat pump that cannot heat."""
+    from microgrid_sim.models import KW_PER_KBTUH, PROPANE_KWH_PER_GAL
+    b = Building()
+    sc = _flat_scenario(-10.0, gains=2.0)
+    ph = PropaneHeater()
+    r = simulate(sc, [0], [0], [20], [2.78], b, HeatPump(), Battery(), Generator(), EVSupport(), record=True,
+                 tank_l=1e6, ph_kw=[100 * KW_PER_KBTUH], ph=ph)
+    s = r["series"]
+    assert r["heat_kwh"][0] == 0                                   # portable unit is below its cutoff
+    assert abs(r["ph_heat_kwh"][0] - r["propane_gal"][0] * ph.efficiency * PROPANE_KWH_PER_GAL) < 1e-6
+    expected = b.thermal_params()["ua_total"] / 1000 * (b.heat_setpoint_c + 10.0) - 2.0
+    assert abs(s["q_ph"][-24:, 0].mean() - expected) / expected < 0.02
+
+
 def test_heat_pump_curve_monotonic():
-    hp = HeatPump()
+    hp = apply_hp_preset(HeatPump(), "cold_climate_12k")
     t = np.linspace(-30, 15, 50)
     cap, cop = hp.heat_perf(t)
     assert np.all(np.diff(cap) >= -1e-9) and np.all(np.diff(cop) > 0)
